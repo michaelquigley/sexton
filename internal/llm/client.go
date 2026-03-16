@@ -14,9 +14,10 @@ import (
 )
 
 type Client struct {
-	endpoint string
-	model    string
-	apiKey   string
+	endpoint  string
+	model     string
+	apiKey    string
+	maxTokens int
 }
 
 // NewClient returns a Client for the given LLM config, or nil if the config is
@@ -31,10 +32,16 @@ func NewClient(cfg *config.LLMConfig) *Client {
 		apiKey = os.Getenv(cfg.APIKeyEnv)
 	}
 
+	maxTokens := cfg.MaxTokens
+	if maxTokens == 0 {
+		maxTokens = 512
+	}
+
 	return &Client{
-		endpoint: cfg.Endpoint,
-		model:    cfg.Model,
-		apiKey:   apiKey,
+		endpoint:  cfg.Endpoint,
+		model:     cfg.Model,
+		apiKey:    apiKey,
+		maxTokens: maxTokens,
 	}
 }
 
@@ -58,7 +65,12 @@ type chatResponse struct {
 }
 
 // Complete sends a chat completion request and returns the response content.
+// if maxTokens is 0, the client's configured default is used.
 func (c *Client) Complete(ctx context.Context, systemPrompt string, userMessage string, maxTokens int) (string, error) {
+	if maxTokens == 0 {
+		maxTokens = c.maxTokens
+	}
+
 	req := chatRequest{
 		Model: c.model,
 		Messages: []chatMessage{

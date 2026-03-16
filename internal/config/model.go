@@ -18,6 +18,7 @@ type RepoDefaults struct {
 
 type RepoEntry struct {
 	Path                string `yaml:"path"`
+	Name                string `yaml:"name"`
 	PollInterval        string `yaml:"poll_interval"`
 	Branch              string `yaml:"branch"`
 	Remote              string `yaml:"remote"`
@@ -36,6 +37,7 @@ type AlertConfig struct {
 }
 
 type RepoLocalConfig struct {
+	Name                string `yaml:"name"`
 	PollInterval        string `yaml:"poll_interval"`
 	Branch              string `yaml:"branch"`
 	Remote              string `yaml:"remote"`
@@ -44,6 +46,7 @@ type RepoLocalConfig struct {
 
 type ResolvedRepo struct {
 	Path                string
+	Name                string
 	PollInterval        time.Duration
 	Branch              string
 	Remote              string

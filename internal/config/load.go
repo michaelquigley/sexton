@@ -59,8 +59,12 @@ func Resolve(entry *RepoEntry, defaults *RepoDefaults, local *RepoLocalConfig) (
 		return nil, err
 	}
 
+	path := ExpandPath(entry.Path)
+	name := coalesce(local.Name, entry.Name, filepath.Base(path))
+
 	return &ResolvedRepo{
-		Path:                ExpandPath(entry.Path),
+		Path:                path,
+		Name:                name,
 		PollInterval:        poll,
 		Branch:              coalesce(local.Branch, entry.Branch, defaults.Branch, "main"),
 		Remote:              coalesce(local.Remote, entry.Remote, defaults.Remote, "origin"),
@@ -69,10 +73,14 @@ func Resolve(entry *RepoEntry, defaults *RepoDefaults, local *RepoLocalConfig) (
 }
 
 func GlobalConfigPath() string {
-	return filepath.Join(globalConfigDir(), "config.yaml")
+	return filepath.Join(GlobalConfigDir(), "config.yaml")
 }
 
-func globalConfigDir() string {
+func SocketPath() string {
+	return filepath.Join(GlobalConfigDir(), "sexton.sock")
+}
+
+func GlobalConfigDir() string {
 	if xdg := os.Getenv("XDG_CONFIG_HOME"); xdg != "" {
 		return filepath.Join(xdg, "sexton")
 	}

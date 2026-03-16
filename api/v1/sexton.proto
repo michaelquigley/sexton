@@ -1,0 +1,66 @@
+syntax = "proto3";
+
+package sexton.v1;
+
+option go_package = "github.com/michaelquigley/sexton/api/v1;sextonv1";
+
+service Sexton {
+  // get the current status of all monitored repos (or a specific one)
+  rpc Status(StatusRequest) returns (StatusResponse);
+
+  // trigger an immediate sync cycle for a repo
+  rpc Sync(SyncRequest) returns (SyncResponse);
+
+  // snooze a repo for a specified duration
+  rpc Snooze(SnoozeRequest) returns (SnoozeResponse);
+
+  // resume a snoozed or halted repo
+  rpc Resume(ResumeRequest) returns (ResumeResponse);
+}
+
+message StatusRequest {
+  string repo = 1; // optional; empty = all repos
+}
+
+message RepoStatus {
+  string path = 1;
+  string state = 2;            // watching, syncing, snoozed, halted
+  string branch = 3;
+  string last_sync = 4;        // RFC3339 timestamp
+  string last_commit = 5;      // short SHA
+  string error = 6;            // populated when halted
+  string snooze_remaining = 7; // populated when snoozed
+  string name = 8;
+}
+
+message StatusResponse {
+  repeated RepoStatus repos = 1;
+}
+
+message SyncRequest {
+  string repo = 1; // required
+}
+
+message SyncResponse {
+  bool ok = 1;
+  string message = 2;
+}
+
+message SnoozeRequest {
+  string repo = 1;     // required
+  string duration = 2; // e.g. "30m", "1h"
+}
+
+message SnoozeResponse {
+  bool ok = 1;
+  string expires = 2; // RFC3339 timestamp
+}
+
+message ResumeRequest {
+  string repo = 1; // required
+}
+
+message ResumeResponse {
+  bool ok = 1;
+  string message = 2;
+}

@@ -37,19 +37,19 @@ func NewContainer(cfg *config.GlobalConfig) (*Container, error) {
 	for _, entry := range cfg.Repos {
 		local, err := config.LoadRepoLocal(config.ExpandPath(entry.Path))
 		if err != nil {
-			dl.Warnf("failed to load repo-local config for %s: %v", entry.Path, err)
+			dl.Warnf("failed to load repo-local config for '%s': %v", entry.Path, err)
 			local = &config.RepoLocalConfig{}
 		}
 
 		resolved, err := config.Resolve(entry, defaults, local)
 		if err != nil {
-			dl.Warnf("failed to resolve config for %s: %v", entry.Path, err)
+			dl.Warnf("failed to resolve config for '%s': %v", entry.Path, err)
 			continue
 		}
 
 		g := git.New(resolved.Path)
 		if g == nil {
-			dl.Warnf("%s is not a git repository, skipping", resolved.Path)
+			dl.Warnf("'%s' is not a git repository, skipping", resolved.Name)
 			continue
 		}
 
