@@ -6,10 +6,13 @@ import (
 	"github.com/michaelquigley/df/dl"
 	"github.com/michaelquigley/sexton/internal/config"
 	"github.com/michaelquigley/sexton/internal/git"
+	"github.com/michaelquigley/sexton/internal/llm"
 )
 
 type Container struct {
-	Agents []*Agent
+	LLM     *llm.Client
+	Alerter Alerter
+	Agents  []*Agent
 }
 
 func NewContainer(cfg *config.GlobalConfig) (*Container, error) {
@@ -26,9 +29,11 @@ func NewContainer(cfg *config.GlobalConfig) (*Container, error) {
 		}
 	}
 
-	alerter := &LogAlerter{}
+	c := &Container{
+		LLM:     llm.NewClient(cfg.LLM),
+		Alerter: &LogAlerter{},
+	}
 
-	var agents []*Agent
 	for _, entry := range cfg.Repos {
 		local, err := config.LoadRepoLocal(config.ExpandPath(entry.Path))
 		if err != nil {
@@ -48,14 +53,14 @@ func NewContainer(cfg *config.GlobalConfig) (*Container, error) {
 			continue
 		}
 
-		agents = append(agents, New(resolved, g, alerter))
+		c.Agents = append(c.Agents, New(resolved, g))
 	}
 
-	if len(agents) == 0 {
+	if len(c.Agents) == 0 {
 		return nil, fmt.Errorf("no valid repos to watch")
 	}
 
-	dl.Infof("starting sexton with %d repo(s)", len(agents))
+	dl.Infof("starting sexton with %d repo(s)", len(c.Agents))
 
-	return &Container{Agents: agents}, nil
+	return c, nil
 }

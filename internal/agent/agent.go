@@ -6,13 +6,16 @@ import (
 	"sync"
 	"time"
 
+	"github.com/michaelquigley/df/dl"
 	"github.com/michaelquigley/sexton/internal/config"
 	"github.com/michaelquigley/sexton/internal/git"
+	"github.com/michaelquigley/sexton/internal/llm"
 )
 
 type Agent struct {
 	cfg     *config.ResolvedRepo
 	git     *git.Git
+	llm     *llm.Client
 	alerter Alerter
 
 	mu    sync.Mutex
@@ -25,15 +28,20 @@ type Agent struct {
 	lastCommit string
 }
 
-func New(cfg *config.ResolvedRepo, g *git.Git, alerter Alerter) *Agent {
+func New(cfg *config.ResolvedRepo, g *git.Git) *Agent {
 	return &Agent{
-		cfg:     cfg,
-		git:     g,
-		alerter: alerter,
-		state:   Watching,
-		stopCh:  make(chan struct{}),
-		doneCh:  make(chan struct{}),
+		cfg:    cfg,
+		git:    g,
+		state:  Watching,
+		stopCh: make(chan struct{}),
+		doneCh: make(chan struct{}),
 	}
+}
+
+func (a *Agent) Wire(c *Container) error {
+	a.llm = c.LLM
+	a.alerter = c.Alerter
+	return nil
 }
 
 func (a *Agent) Start() error {
@@ -91,7 +99,13 @@ func (a *Agent) sync() {
 
 	if dirty {
 		status, _ := a.git.Status()
-		msg := git.GenerateCommitMessage(status)
+
+		if err := a.git.StageAll(ctx); err != nil {
+			a.halt("staging failed", err)
+			return
+		}
+
+		msg := a.generateCommitMessage(ctx, status)
 
 		if err := a.git.Commit(ctx, msg); err != nil {
 			if !errors.Is(err, git.ErrNothingToCommit) {
@@ -167,4 +181,45 @@ func (a *Agent) alert(severity, message string, err error) {
 		Error:     err,
 		Timestamp: time.Now(),
 	})
+}
+
+const maxDiffBytes = 32 * 1024
+
+func (a *Agent) generateCommitMessage(ctx context.Context, status *git.Status) string {
+	fallback := git.GenerateCommitMessage(status)
+
+	if a.llm == nil {
+		return fallback
+	}
+
+	diff, err := a.git.DiffStaged()
+	if err != nil {
+		dl.Warnf("failed to get staged diff for '%s': %v", a.cfg.Path, err)
+		return fallback
+	}
+
+	if len(diff) > maxDiffBytes {
+		diff, err = a.git.DiffStat()
+		if err != nil {
+			dl.Warnf("failed to get diff stat for '%s': %v", a.cfg.Path, err)
+			return fallback
+		}
+	}
+
+	maxTokens := 128
+	if a.cfg.CommitMessagePrompt == "" {
+		a.cfg.CommitMessagePrompt = config.DefaultCommitMessagePrompt
+	}
+
+	result, err := a.llm.Complete(ctx, a.cfg.CommitMessagePrompt, diff, maxTokens)
+	if err != nil {
+		dl.Warnf("llm commit message failed for '%s': %v", a.cfg.Path, err)
+		return fallback
+	}
+
+	if result == "" {
+		return fallback
+	}
+
+	return result
 }

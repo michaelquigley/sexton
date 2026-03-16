@@ -60,10 +60,11 @@ func Resolve(entry *RepoEntry, defaults *RepoDefaults, local *RepoLocalConfig) (
 	}
 
 	return &ResolvedRepo{
-		Path:         ExpandPath(entry.Path),
-		PollInterval: poll,
-		Branch:       coalesce(local.Branch, entry.Branch, defaults.Branch, "main"),
-		Remote:       coalesce(local.Remote, entry.Remote, defaults.Remote, "origin"),
+		Path:                ExpandPath(entry.Path),
+		PollInterval:        poll,
+		Branch:              coalesce(local.Branch, entry.Branch, defaults.Branch, "main"),
+		Remote:              coalesce(local.Remote, entry.Remote, defaults.Remote, "origin"),
+		CommitMessagePrompt: coalesce(local.CommitMessagePrompt, entry.CommitMessagePrompt, defaults.CommitMessagePrompt, DefaultCommitMessagePrompt),
 	}, nil
 }
 
