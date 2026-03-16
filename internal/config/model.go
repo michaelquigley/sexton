@@ -1,0 +1,57 @@
+package config
+
+import "time"
+
+type GlobalConfig struct {
+	LLM      *LLMConfig    `yaml:"llm"`
+	Defaults *RepoDefaults `yaml:"defaults"`
+	Alerts   []*AlertConfig `yaml:"alerts"`
+	Repos    []*RepoEntry  `yaml:"repos"`
+}
+
+type RepoDefaults struct {
+	PollInterval string `yaml:"poll_interval"`
+	Branch       string `yaml:"branch"`
+	Remote       string `yaml:"remote"`
+}
+
+type RepoEntry struct {
+	Path         string `yaml:"path"`
+	PollInterval string `yaml:"poll_interval"`
+	Branch       string `yaml:"branch"`
+	Remote       string `yaml:"remote"`
+}
+
+type LLMConfig struct {
+	Endpoint  string `yaml:"endpoint"`
+	Model     string `yaml:"model"`
+	APIKeyEnv string `yaml:"api_key_env"`
+	MaxTokens int    `yaml:"max_tokens"`
+}
+
+type AlertConfig struct {
+	Type string `yaml:"type"`
+}
+
+type RepoLocalConfig struct {
+	PollInterval string `yaml:"poll_interval"`
+	Branch       string `yaml:"branch"`
+	Remote       string `yaml:"remote"`
+}
+
+type ResolvedRepo struct {
+	Path         string
+	PollInterval time.Duration
+	Branch       string
+	Remote       string
+}
+
+func defaultGlobalConfig() *GlobalConfig {
+	return &GlobalConfig{
+		Defaults: &RepoDefaults{
+			PollInterval: "30s",
+			Branch:       "main",
+			Remote:       "origin",
+		},
+	}
+}
