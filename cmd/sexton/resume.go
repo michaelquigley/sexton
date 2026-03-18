@@ -11,7 +11,7 @@ import (
 func init() {
 	rootCmd.AddCommand(&cobra.Command{
 		Use:   "resume <repo>",
-		Short: "resume a snoozed or halted repo",
+		Short: "resume a snoozed or errored repo",
 		Args:  cobra.ExactArgs(1),
 		RunE:  runResume,
 	})

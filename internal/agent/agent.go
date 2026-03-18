@@ -15,7 +15,7 @@ import (
 
 type Agent struct {
 	cfg     *config.ResolvedRepo
-	git     *git.Git
+	git     gitClient
 	llm     *llm.Client
 	alerter Alerter
 
@@ -28,10 +28,23 @@ type Agent struct {
 
 	snoozeTimer *time.Timer
 	snoozeUntil time.Time
-	haltErr     error
+	errorDetail string
 
 	lastSync   time.Time
 	lastCommit string
+}
+
+type gitClient interface {
+	IsDirty() (bool, error)
+	Status() (*git.Status, error)
+	StageAll(ctx context.Context) error
+	Commit(ctx context.Context, message string) error
+	Pull(ctx context.Context) (bool, error)
+	Push(ctx context.Context) error
+	RebaseAbort(ctx context.Context) error
+	ShortHEAD() (string, error)
+	DiffStaged() (string, error)
+	DiffStat() (string, error)
 }
 
 func New(cfg *config.ResolvedRepo, g *git.Git) *Agent {
@@ -92,10 +105,10 @@ func (a *Agent) LastCommit() string {
 	return a.lastCommit
 }
 
-func (a *Agent) HaltError() error {
+func (a *Agent) ErrorDetail() string {
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	return a.haltErr
+	return a.errorDetail
 }
 
 func (a *Agent) SnoozeRemaining() time.Duration {
@@ -111,13 +124,10 @@ func (a *Agent) SnoozeRemaining() time.Duration {
 	return remaining
 }
 
-// TriggerSync requests an immediate sync cycle. errors if the agent is halted or snoozed.
+// TriggerSync requests an immediate sync cycle. errors if the agent is snoozed.
 func (a *Agent) TriggerSync() error {
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	if a.state == Halted {
-		return fmt.Errorf("agent is halted")
-	}
 	if a.state == Snoozed {
 		return fmt.Errorf("agent is snoozed")
 	}
@@ -129,13 +139,10 @@ func (a *Agent) TriggerSync() error {
 	return nil
 }
 
-// Snooze pauses the agent for the given duration. errors if the agent is halted.
+// Snooze pauses the agent for the given duration.
 func (a *Agent) Snooze(d time.Duration) (time.Time, error) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	if a.state == Halted {
-		return time.Time{}, fmt.Errorf("cannot snooze a halted agent")
-	}
 	a.state = Snoozed
 	a.snoozeUntil = time.Now().Add(d)
 	if a.snoozeTimer != nil {
@@ -146,20 +153,20 @@ func (a *Agent) Snooze(d time.Duration) (time.Time, error) {
 	return a.snoozeUntil, nil
 }
 
-// Resume transitions a halted or snoozed agent back to watching and triggers an immediate sync.
+// Resume transitions an errored or snoozed agent back to watching and triggers an immediate sync.
 func (a *Agent) Resume() error {
 	a.mu.Lock()
-	if a.state != Halted && a.state != Snoozed {
+	if a.state != Error && a.state != Snoozed {
 		a.mu.Unlock()
-		return fmt.Errorf("agent is not halted or snoozed (state: '%s')", a.state)
+		return fmt.Errorf("agent is not errored or snoozed (state: '%s')", a.state)
 	}
 	if a.snoozeTimer != nil {
 		a.snoozeTimer.Stop()
 		a.snoozeTimer = nil
 	}
 	a.snoozeUntil = time.Time{}
-	a.haltErr = nil
 	a.state = Watching
+	a.errorDetail = ""
 	a.mu.Unlock()
 	dl.Infof("resumed '%s'", a.cfg.Name)
 	select {
@@ -210,7 +217,7 @@ func (a *Agent) run() {
 
 func (a *Agent) sync() {
 	a.mu.Lock()
-	if a.state == Halted || a.state == Snoozed {
+	if a.state == Snoozed {
 		a.mu.Unlock()
 		return
 	}
@@ -223,20 +230,20 @@ func (a *Agent) sync() {
 
 	dirty, err := a.git.IsDirty()
 	if err != nil {
-		a.halt("failed to check status", err)
+		a.setError("failed to check status", err)
 		return
 	}
 
 	if dirty {
 		if err := a.runHooks(ctx, "pre_commit", a.cfg.Hooks.PreCommit); err != nil {
-			a.halt("pre_commit hook failed", err)
+			a.setError("pre_commit hook failed", err)
 			return
 		}
 
 		status, _ := a.git.Status()
 
 		if err := a.git.StageAll(ctx); err != nil {
-			a.halt("staging failed", err)
+			a.setError("staging failed", err)
 			return
 		}
 
@@ -246,13 +253,13 @@ func (a *Agent) sync() {
 
 		if err := a.git.Commit(ctx, msg); err != nil {
 			if !errors.Is(err, git.ErrNothingToCommit) {
-				a.halt("commit failed", err)
+				a.setError("commit failed", err)
 				return
 			}
 		}
 
 		if err := a.runHooks(ctx, "post_commit", a.cfg.Hooks.PostCommit); err != nil {
-			a.halt("post_commit hook failed", err)
+			a.setError("post_commit hook failed", err)
 			return
 		}
 	}
@@ -261,7 +268,7 @@ func (a *Agent) sync() {
 	if err != nil {
 		if errors.Is(err, git.ErrConflict) {
 			_ = a.git.RebaseAbort(ctx)
-			a.halt("rebase conflict", err)
+			a.setError("rebase conflict", err)
 			return
 		}
 		if errors.Is(err, git.ErrNoRemote) {
@@ -269,6 +276,7 @@ func (a *Agent) sync() {
 			a.mu.Lock()
 			a.state = Watching
 			a.lastSync = time.Now()
+			a.errorDetail = ""
 			a.mu.Unlock()
 			return
 		}
@@ -276,20 +284,21 @@ func (a *Agent) sync() {
 			// shouldn't happen since we committed above, but handle gracefully
 			a.mu.Lock()
 			a.state = Watching
+			a.errorDetail = ""
 			a.mu.Unlock()
 			return
 		}
-		a.halt("pull failed", err)
+		a.setError("pull failed", err)
 		return
 	}
 
 	if err := a.runHooks(ctx, "post_pull", a.cfg.Hooks.PostPull); err != nil {
-		a.halt("post_pull hook failed", err)
+		a.setError("post_pull hook failed", err)
 		return
 	}
 
 	if err := a.runHooks(ctx, "pre_push", a.cfg.Hooks.PrePush); err != nil {
-		a.halt("pre_push hook failed", err)
+		a.setError("pre_push hook failed", err)
 		return
 	}
 
@@ -298,15 +307,16 @@ func (a *Agent) sync() {
 			a.mu.Lock()
 			a.state = Watching
 			a.lastSync = time.Now()
+			a.errorDetail = ""
 			a.mu.Unlock()
 			return
 		}
-		a.halt("push failed", err)
+		a.setError("push failed", err)
 		return
 	}
 
 	if err := a.runHooks(ctx, "post_sync", a.cfg.Hooks.PostSync); err != nil {
-		a.halt("post_sync hook failed", err)
+		a.setError("post_sync hook failed", err)
 		return
 	}
 
@@ -316,6 +326,7 @@ func (a *Agent) sync() {
 	a.state = Watching
 	a.lastSync = time.Now()
 	a.lastCommit = sha
+	a.errorDetail = ""
 	a.mu.Unlock()
 
 	dl.Debugf("sync complete for '%s'", a.cfg.Name)
@@ -325,12 +336,28 @@ func (a *Agent) sync() {
 	}
 }
 
-func (a *Agent) halt(message string, err error) {
+func (a *Agent) setError(message string, err error) {
+	detail := formatErrorDetail(message, err)
+
 	a.mu.Lock()
-	a.state = Halted
-	a.haltErr = err
+	shouldAlert := a.errorDetail != detail
+	a.state = Error
+	a.errorDetail = detail
 	a.mu.Unlock()
-	a.alert("error", message, err)
+
+	if shouldAlert {
+		a.alert("error", message, err)
+	}
+}
+
+func formatErrorDetail(message string, err error) string {
+	if err == nil {
+		return message
+	}
+	if message == "" {
+		return err.Error()
+	}
+	return fmt.Sprintf("%s: %v", message, err)
 }
 
 func (a *Agent) alert(severity, message string, err error) {

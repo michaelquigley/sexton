@@ -68,11 +68,11 @@ func (x *StatusRequest) GetRepo() string {
 type RepoStatus struct {
 	state           protoimpl.MessageState `protogen:"open.v1"`
 	Path            string                 `protobuf:"bytes,1,opt,name=path,proto3" json:"path,omitempty"`
-	State           string                 `protobuf:"bytes,2,opt,name=state,proto3" json:"state,omitempty"` // watching, syncing, snoozed, halted
+	State           string                 `protobuf:"bytes,2,opt,name=state,proto3" json:"state,omitempty"` // watching, syncing, snoozed, error
 	Branch          string                 `protobuf:"bytes,3,opt,name=branch,proto3" json:"branch,omitempty"`
 	LastSync        string                 `protobuf:"bytes,4,opt,name=last_sync,json=lastSync,proto3" json:"last_sync,omitempty"`                      // RFC3339 timestamp
 	LastCommit      string                 `protobuf:"bytes,5,opt,name=last_commit,json=lastCommit,proto3" json:"last_commit,omitempty"`                // short SHA
-	Error           string                 `protobuf:"bytes,6,opt,name=error,proto3" json:"error,omitempty"`                                            // populated when halted
+	Error           string                 `protobuf:"bytes,6,opt,name=error,proto3" json:"error,omitempty"`                                            // populated when errored
 	SnoozeRemaining string                 `protobuf:"bytes,7,opt,name=snooze_remaining,json=snoozeRemaining,proto3" json:"snooze_remaining,omitempty"` // populated when snoozed
 	Name            string                 `protobuf:"bytes,8,opt,name=name,proto3" json:"name,omitempty"`
 	unknownFields   protoimpl.UnknownFields

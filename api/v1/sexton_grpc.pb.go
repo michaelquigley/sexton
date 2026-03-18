@@ -35,7 +35,7 @@ type SextonClient interface {
 	Sync(ctx context.Context, in *SyncRequest, opts ...grpc.CallOption) (*SyncResponse, error)
 	// snooze a repo for a specified duration
 	Snooze(ctx context.Context, in *SnoozeRequest, opts ...grpc.CallOption) (*SnoozeResponse, error)
-	// resume a snoozed or halted repo
+	// resume a snoozed or errored repo
 	Resume(ctx context.Context, in *ResumeRequest, opts ...grpc.CallOption) (*ResumeResponse, error)
 }
 
@@ -97,7 +97,7 @@ type SextonServer interface {
 	Sync(context.Context, *SyncRequest) (*SyncResponse, error)
 	// snooze a repo for a specified duration
 	Snooze(context.Context, *SnoozeRequest) (*SnoozeResponse, error)
-	// resume a snoozed or halted repo
+	// resume a snoozed or errored repo
 	Resume(context.Context, *ResumeRequest) (*ResumeResponse, error)
 	mustEmbedUnimplementedSextonServer()
 }

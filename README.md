@@ -1,6 +1,6 @@
 # Sexton
 
-Git-based repository synchronization agent. Keeps local git repos in sync with their remotes by polling for changes, committing with LLM-generated summaries, and pushing -- halting on conflicts it cannot resolve.
+Git-based repository synchronization agent. Keeps local git repos in sync with their remotes by polling for changes, committing with LLM-generated summaries, and pushing while surfacing per-repo errors it cannot immediately resolve.
 
 Designed for knowledge repositories and datasets (markdown collections, config stores, structured data), not code repos.
 
@@ -24,15 +24,15 @@ flowchart TD
     push --> post_sync[post_sync hooks]
     post_sync --> sleep[Sleep]
     sleep --> poll
-    pull -- conflict --> halted([Halted])
+    pull -- conflict --> error([Error])
 ```
 
 - **Clean tree**: pull, run post_pull/pre_push/post_sync hooks, push, sleep
 - **Dirty tree**: run pre_commit hooks, stage all, generate a commit message via LLM, commit, run post_commit hooks, pull --rebase, run post_pull/pre_push hooks, push, run post_sync hooks
-- **Conflict**: abort the rebase, halt the repo, alert the user
-- **Hook failure**: halt the repo, alert the user (same as conflict)
+- **Conflict**: abort the rebase, mark the repo errored, alert the user
+- **Hook failure**: mark the repo errored, alert the user
 
-Sexton never silently loses data. On any unrecoverable error it halts and waits for you.
+Sexton never silently loses data. On any unrecoverable error it marks the affected repo errored, reports it in status, and keeps retrying until the underlying issue is fixed.
 
 ## Installation
 
@@ -163,11 +163,13 @@ sexton sync grimoire
 sexton snooze grimoire 1h
 ```
 
-### Resume a halted or snoozed repo
+### Resume a snoozed or errored repo
 
 ```bash
 sexton resume grimoire
 ```
+
+`resume` is still useful for clearing a snooze or forcing an immediate retry for an errored repo, but normal recovery no longer depends on it.
 
 ## Repo states
 
@@ -178,8 +180,9 @@ stateDiagram-v2
     watching --> syncing : tree is dirty
     syncing --> watching : success
 
-    syncing --> halted : conflict / error
-    halted --> watching : user resolves + resume
+    syncing --> error : conflict / error
+    error --> syncing : next poll / sync / resume
+    syncing --> watching : recovery succeeds
 
     watching --> snoozed : user snooze
     snoozed --> watching : timeout expires / resume
@@ -187,7 +190,7 @@ stateDiagram-v2
 
 - **watching** -- polling on the configured interval
 - **syncing** -- executing stage, commit, pull, push
-- **halted** -- unrecoverable error; waiting for user intervention
+- **error** -- last sync attempt failed; visible in status and retried automatically
 - **snoozed** -- temporarily paused; auto-expires after the specified duration
 
 ## Commit messages

@@ -100,8 +100,8 @@ func agentToRepoInfo(ag *agent.Agent) rpc.RepoInfo {
 		LastCommit:      ag.LastCommit(),
 		SnoozeRemaining: ag.SnoozeRemaining(),
 	}
-	if err := ag.HaltError(); err != nil {
-		info.Error = err.Error()
+	if detail := ag.ErrorDetail(); detail != "" {
+		info.Error = detail
 	}
 	return info
 }
