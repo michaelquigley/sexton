@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"text/tabwriter"
+	"time"
 
 	sextonv1 "github.com/michaelquigley/sexton/api/v1"
 	"github.com/spf13/cobra"
@@ -44,10 +45,7 @@ func runStatus(_ *cobra.Command, args []string) error {
 	w := tabwriter.NewWriter(os.Stdout, 0, 4, 2, ' ', 0)
 	fmt.Fprintln(w, "NAME\tSTATE\tBRANCH\tLAST SYNC\tLAST COMMIT\tERROR\tSNOOZE")
 	for _, r := range resp.GetRepos() {
-		lastSync := r.GetLastSync()
-		if lastSync == "" {
-			lastSync = "-"
-		}
+		lastSync := formatLastSync(r.GetLastSync(), time.Now())
 		lastCommit := r.GetLastCommit()
 		if lastCommit == "" {
 			lastCommit = "-"
@@ -65,4 +63,31 @@ func runStatus(_ *cobra.Command, args []string) error {
 			lastSync, lastCommit, errStr, snooze)
 	}
 	return w.Flush()
+}
+
+func formatLastSync(lastSync string, now time.Time) string {
+	if lastSync == "" {
+		return "-"
+	}
+
+	t, err := time.Parse(time.RFC3339, lastSync)
+	if err != nil {
+		return lastSync
+	}
+
+	elapsed := now.Sub(t)
+	if elapsed < 0 {
+		elapsed = 0
+	}
+
+	switch {
+	case elapsed < time.Minute:
+		return fmt.Sprintf("%ds ago", int(elapsed/time.Second))
+	case elapsed < time.Hour:
+		return fmt.Sprintf("%dm ago", int(elapsed/time.Minute))
+	case elapsed < 24*time.Hour:
+		return fmt.Sprintf("%dh ago", int(elapsed/time.Hour))
+	default:
+		return fmt.Sprintf("%dd ago", int(elapsed/(24*time.Hour)))
+	}
 }
