@@ -26,9 +26,10 @@ type Agent struct {
 	doneCh chan struct{}
 	syncCh chan struct{}
 
-	snoozeTimer *time.Timer
-	snoozeUntil time.Time
-	errorDetail string
+	snoozeTimer   *time.Timer
+	snoozeUntil   time.Time
+	snoozePending bool
+	errorDetail   string
 
 	lastSync   time.Time
 	lastCommit string
@@ -142,31 +143,31 @@ func (a *Agent) TriggerSync() error {
 // Snooze pauses the agent for the given duration.
 func (a *Agent) Snooze(d time.Duration) (time.Time, error) {
 	a.mu.Lock()
-	defer a.mu.Unlock()
-	a.state = Snoozed
-	a.snoozeUntil = time.Now().Add(d)
-	if a.snoozeTimer != nil {
-		a.snoozeTimer.Stop()
+	until := a.startSnoozeLocked(d)
+	if a.state == Syncing {
+		a.snoozePending = true
+	} else {
+		a.state = Snoozed
+		a.snoozePending = false
 	}
-	a.snoozeTimer = time.NewTimer(d)
-	dl.Infof("snoozed '%s' until %s", a.cfg.Name, a.snoozeUntil.Format(time.RFC3339))
-	return a.snoozeUntil, nil
+	a.mu.Unlock()
+
+	dl.Infof("snoozed '%s' until %s", a.cfg.Name, until.Format(time.RFC3339))
+	return until, nil
 }
 
 // Resume transitions an errored or snoozed agent back to watching and triggers an immediate sync.
 func (a *Agent) Resume() error {
 	a.mu.Lock()
-	if a.state != Error && a.state != Snoozed {
+	if a.state != Error && a.state != Snoozed && !a.snoozePending {
 		a.mu.Unlock()
 		return fmt.Errorf("agent is not errored or snoozed (state: '%s')", a.state)
 	}
-	if a.snoozeTimer != nil {
-		a.snoozeTimer.Stop()
-		a.snoozeTimer = nil
+	a.clearSnoozeLocked()
+	if a.state == Error || a.state == Snoozed {
+		a.state = Watching
+		a.errorDetail = ""
 	}
-	a.snoozeUntil = time.Time{}
-	a.state = Watching
-	a.errorDetail = ""
 	a.mu.Unlock()
 	dl.Infof("resumed '%s'", a.cfg.Name)
 	select {
@@ -233,10 +234,16 @@ func (a *Agent) sync() {
 		a.setError("failed to check status", err)
 		return
 	}
+	if a.pauseIfRequested() {
+		return
+	}
 
 	if dirty {
 		if err := a.runHooks(ctx, "pre_commit", a.cfg.Hooks.PreCommit); err != nil {
 			a.setError("pre_commit hook failed", err)
+			return
+		}
+		if a.pauseIfRequested() {
 			return
 		}
 
@@ -246,10 +253,16 @@ func (a *Agent) sync() {
 			a.setError("staging failed", err)
 			return
 		}
+		if a.pauseIfRequested() {
+			return
+		}
 
 		dl.Infof("generating commit message for '%s'", a.cfg.Name)
 		msg := a.generateCommitMessage(ctx, status)
 		dl.Infof("generated commit message '%v'", msg)
+		if a.pauseIfRequested() {
+			return
+		}
 
 		if err := a.git.Commit(ctx, msg); err != nil {
 			if !errors.Is(err, git.ErrNothingToCommit) {
@@ -257,9 +270,15 @@ func (a *Agent) sync() {
 				return
 			}
 		}
+		if a.pauseIfRequested() {
+			return
+		}
 
 		if err := a.runHooks(ctx, "post_commit", a.cfg.Hooks.PostCommit); err != nil {
 			a.setError("post_commit hook failed", err)
+			return
+		}
+		if a.pauseIfRequested() {
 			return
 		}
 	}
@@ -272,15 +291,17 @@ func (a *Agent) sync() {
 			return
 		}
 		if errors.Is(err, git.ErrNoRemote) {
+			if a.pauseIfRequested() {
+				return
+			}
 			// no remote configured — commit-only mode
-			a.mu.Lock()
-			a.state = Watching
-			a.lastSync = time.Now()
-			a.errorDetail = ""
-			a.mu.Unlock()
+			a.completeSync("")
 			return
 		}
 		if errors.Is(err, git.ErrDirtyWorkingTree) {
+			if a.pauseIfRequested() {
+				return
+			}
 			// shouldn't happen since we committed above, but handle gracefully
 			a.mu.Lock()
 			a.state = Watching
@@ -291,9 +312,15 @@ func (a *Agent) sync() {
 		a.setError("pull failed", err)
 		return
 	}
+	if a.pauseIfRequested() {
+		return
+	}
 
 	if err := a.runHooks(ctx, "post_pull", a.cfg.Hooks.PostPull); err != nil {
 		a.setError("post_pull hook failed", err)
+		return
+	}
+	if a.pauseIfRequested() {
 		return
 	}
 
@@ -301,17 +328,22 @@ func (a *Agent) sync() {
 		a.setError("pre_push hook failed", err)
 		return
 	}
+	if a.pauseIfRequested() {
+		return
+	}
 
 	if err := a.git.Push(ctx); err != nil {
 		if errors.Is(err, git.ErrNoRemote) {
-			a.mu.Lock()
-			a.state = Watching
-			a.lastSync = time.Now()
-			a.errorDetail = ""
-			a.mu.Unlock()
+			if a.pauseIfRequested() {
+				return
+			}
+			a.completeSync("")
 			return
 		}
 		a.setError("push failed", err)
+		return
+	}
+	if a.pauseIfRequested() {
 		return
 	}
 
@@ -319,21 +351,89 @@ func (a *Agent) sync() {
 		a.setError("post_sync hook failed", err)
 		return
 	}
+	if a.pauseIfRequested() {
+		return
+	}
 
 	sha, _ := a.git.ShortHEAD()
+	if a.pauseIfRequested() {
+		return
+	}
 
-	a.mu.Lock()
-	a.state = Watching
-	a.lastSync = time.Now()
-	a.lastCommit = sha
-	a.errorDetail = ""
-	a.mu.Unlock()
+	a.completeSync(sha)
 
 	dl.Debugf("sync complete for '%s'", a.cfg.Name)
 
 	if dirty {
 		a.alert("info", "sync complete ("+sha+")", nil)
 	}
+}
+
+func (a *Agent) startSnoozeLocked(d time.Duration) time.Time {
+	until := time.Now().Add(d)
+	a.snoozeUntil = until
+	a.resetSnoozeTimerLocked(d)
+	a.drainSyncRequestsLocked()
+	return until
+}
+
+func (a *Agent) resetSnoozeTimerLocked(d time.Duration) {
+	if a.snoozeTimer != nil {
+		if !a.snoozeTimer.Stop() {
+			select {
+			case <-a.snoozeTimer.C:
+			default:
+			}
+		}
+	}
+	a.snoozeTimer = time.NewTimer(d)
+}
+
+func (a *Agent) clearSnoozeLocked() {
+	if a.snoozeTimer != nil {
+		if !a.snoozeTimer.Stop() {
+			select {
+			case <-a.snoozeTimer.C:
+			default:
+			}
+		}
+		a.snoozeTimer = nil
+	}
+	a.snoozeUntil = time.Time{}
+	a.snoozePending = false
+}
+
+func (a *Agent) drainSyncRequestsLocked() {
+	for {
+		select {
+		case <-a.syncCh:
+		default:
+			return
+		}
+	}
+}
+
+func (a *Agent) pauseIfRequested() bool {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if !a.snoozePending {
+		return false
+	}
+	a.state = Snoozed
+	a.snoozePending = false
+	a.drainSyncRequestsLocked()
+	return true
+}
+
+func (a *Agent) completeSync(sha string) {
+	a.mu.Lock()
+	a.state = Watching
+	a.lastSync = time.Now()
+	if sha != "" {
+		a.lastCommit = sha
+	}
+	a.errorDetail = ""
+	a.mu.Unlock()
 }
 
 func (a *Agent) setError(message string, err error) {

@@ -21,24 +21,70 @@ type stubGit struct {
 	pushErr        error
 	rebaseAbortErr error
 	rebaseAborts   int
+	stageCalls     int
+	commitCalls    int
+	pullCalls      int
+	pushCalls      int
+	shortHEADCalls int
 	shortHEAD      string
 	shortHEADErr   error
 	diffStaged     string
 	diffStagedErr  error
 	diffStat       string
 	diffStatErr    error
+	onIsDirty      func()
+	onStageAll     func()
+	onCommit       func()
+	onPull         func()
+	onPush         func()
+	onShortHEAD    func()
 }
 
-func (g *stubGit) IsDirty() (bool, error)               { return g.dirty, g.dirtyErr }
-func (g *stubGit) Status() (*git.Status, error)         { return g.status, g.statusErr }
-func (g *stubGit) StageAll(context.Context) error       { return g.stageErr }
-func (g *stubGit) Commit(context.Context, string) error { return g.commitErr }
-func (g *stubGit) Pull(context.Context) (bool, error)   { return false, g.pullErr }
-func (g *stubGit) Push(context.Context) error           { return g.pushErr }
-func (g *stubGit) RebaseAbort(context.Context) error    { g.rebaseAborts++; return g.rebaseAbortErr }
-func (g *stubGit) ShortHEAD() (string, error)           { return g.shortHEAD, g.shortHEADErr }
-func (g *stubGit) DiffStaged() (string, error)          { return g.diffStaged, g.diffStagedErr }
-func (g *stubGit) DiffStat() (string, error)            { return g.diffStat, g.diffStatErr }
+func (g *stubGit) IsDirty() (bool, error) {
+	if g.onIsDirty != nil {
+		g.onIsDirty()
+	}
+	return g.dirty, g.dirtyErr
+}
+func (g *stubGit) Status() (*git.Status, error) { return g.status, g.statusErr }
+func (g *stubGit) StageAll(context.Context) error {
+	g.stageCalls++
+	if g.onStageAll != nil {
+		g.onStageAll()
+	}
+	return g.stageErr
+}
+func (g *stubGit) Commit(context.Context, string) error {
+	g.commitCalls++
+	if g.onCommit != nil {
+		g.onCommit()
+	}
+	return g.commitErr
+}
+func (g *stubGit) Pull(context.Context) (bool, error) {
+	g.pullCalls++
+	if g.onPull != nil {
+		g.onPull()
+	}
+	return false, g.pullErr
+}
+func (g *stubGit) Push(context.Context) error {
+	g.pushCalls++
+	if g.onPush != nil {
+		g.onPush()
+	}
+	return g.pushErr
+}
+func (g *stubGit) RebaseAbort(context.Context) error { g.rebaseAborts++; return g.rebaseAbortErr }
+func (g *stubGit) ShortHEAD() (string, error) {
+	g.shortHEADCalls++
+	if g.onShortHEAD != nil {
+		g.onShortHEAD()
+	}
+	return g.shortHEAD, g.shortHEADErr
+}
+func (g *stubGit) DiffStaged() (string, error) { return g.diffStaged, g.diffStagedErr }
+func (g *stubGit) DiffStat() (string, error)   { return g.diffStat, g.diffStatErr }
 
 type recordingAlerter struct {
 	events []AlertEvent
@@ -203,5 +249,136 @@ func TestSetErrorDeduplicatesUntilRecovery(t *testing.T) {
 
 	if len(alerts.events) != 3 {
 		t.Fatalf("expected alert after recovery, got %d", len(alerts.events))
+	}
+}
+
+func TestSnoozeDuringSyncWaitsForCheckpointAndStopsLaterPhases(t *testing.T) {
+	reachedPull := make(chan struct{})
+	releasePull := make(chan struct{})
+
+	g := &stubGit{
+		shortHEAD: "abc123",
+		onPull: func() {
+			close(reachedPull)
+			<-releasePull
+		},
+	}
+	a := newAgentForTest(g, nil)
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		a.sync()
+	}()
+
+	<-reachedPull
+
+	if _, err := a.Snooze(time.Minute); err != nil {
+		t.Fatalf("expected snooze during sync to succeed, got %v", err)
+	}
+	if got := a.State(); got != Syncing {
+		t.Fatalf("expected state to remain syncing until checkpoint, got %s", got)
+	}
+
+	close(releasePull)
+	<-done
+
+	if got := a.State(); got != Snoozed {
+		t.Fatalf("expected snoozed state after checkpoint, got %s", got)
+	}
+	if g.pushCalls != 0 {
+		t.Fatalf("expected push to be skipped after deferred snooze, got %d calls", g.pushCalls)
+	}
+	if g.shortHEADCalls != 0 {
+		t.Fatalf("expected short HEAD lookup to be skipped after deferred snooze, got %d calls", g.shortHEADCalls)
+	}
+	if !a.LastSync().IsZero() {
+		t.Fatal("expected last sync to remain unset when sync pauses mid-cycle")
+	}
+}
+
+func TestSnoozeDropsQueuedSyncWhileSyncing(t *testing.T) {
+	reachedPull := make(chan struct{})
+	releasePull := make(chan struct{})
+
+	g := &stubGit{
+		onPull: func() {
+			close(reachedPull)
+			<-releasePull
+		},
+	}
+	a := newAgentForTest(g, nil)
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		a.sync()
+	}()
+
+	<-reachedPull
+
+	if err := a.TriggerSync(); err != nil {
+		t.Fatalf("expected queued trigger during sync, got %v", err)
+	}
+	if _, err := a.Snooze(time.Minute); err != nil {
+		t.Fatalf("expected snooze during sync to succeed, got %v", err)
+	}
+
+	close(releasePull)
+	<-done
+
+	select {
+	case <-a.syncCh:
+		t.Fatal("expected queued sync to be dropped by snooze")
+	default:
+	}
+}
+
+func TestResumeClearsDeferredSnoozeAndQueuesRetry(t *testing.T) {
+	reachedPull := make(chan struct{})
+	releasePull := make(chan struct{})
+
+	g := &stubGit{
+		shortHEAD: "abc123",
+		onPull: func() {
+			close(reachedPull)
+			<-releasePull
+		},
+	}
+	a := newAgentForTest(g, nil)
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		a.sync()
+	}()
+
+	<-reachedPull
+
+	if _, err := a.Snooze(time.Minute); err != nil {
+		t.Fatalf("expected snooze during sync to succeed, got %v", err)
+	}
+	if err := a.Resume(); err != nil {
+		t.Fatalf("expected resume to clear deferred snooze, got %v", err)
+	}
+	if got := a.State(); got != Syncing {
+		t.Fatalf("expected sync to continue after resuming deferred snooze, got %s", got)
+	}
+
+	close(releasePull)
+	<-done
+
+	if got := a.State(); got != Watching {
+		t.Fatalf("expected watching state after resumed sync completes, got %s", got)
+	}
+	select {
+	case <-a.syncCh:
+	default:
+		t.Fatal("expected resume to queue a retry")
+	}
+	select {
+	case <-a.syncCh:
+		t.Fatal("expected exactly one queued retry after resume")
+	default:
 	}
 }
