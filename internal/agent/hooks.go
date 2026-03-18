@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"os/exec"
+	"time"
 
 	"github.com/michaelquigley/df/dl"
 	"github.com/michaelquigley/sexton/internal/config"
@@ -39,14 +40,16 @@ func (a *Agent) runHooks(ctx context.Context, phase string, hooks []*config.Reso
 		cmd.Stdout = &stdout
 		cmd.Stderr = &stderr
 
+		start := time.Now()
+
 		err := cmd.Run()
 		cancel()
 
 		if out := stdout.String(); out != "" {
-			dl.Infof("[%s] stdout: %s", phase, out)
+			dl.Debugf("[%s] stdout: %s", phase, out)
 		}
 		if errOut := stderr.String(); errOut != "" {
-			dl.Infof("[%s] stderr: %s", phase, errOut)
+			dl.Debugf("[%s] stderr: %s", phase, errOut)
 		}
 
 		if err != nil {
@@ -58,7 +61,7 @@ func (a *Agent) runHooks(ctx context.Context, phase string, hooks []*config.Reso
 				phase, hook.Command, exitCode, stderr.String(), err)
 		}
 
-		dl.Infof("[%s] hook %d/%d completed successfully", phase, i+1, len(hooks))
+		dl.Infof("[%s] hook %d/%d completed successfully (in %v)", phase, i+1, len(hooks), time.Since(start))
 	}
 
 	return nil
