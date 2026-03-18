@@ -114,7 +114,7 @@ hooks:
 | `hooks.pre_push` | global, repo | -- | Commands to run before pushing |
 | `hooks.post_sync` | global, repo | -- | Commands to run after a successful sync cycle |
 
-Each hook entry has a `command` (shell string) and optional `timeout` (default `30s`), `dir` (working directory, defaults to repo root), and `env` (map of additional environment variables).
+Each hook entry has a `command` (shell string) and optional `timeout` (default `30s`), `dir` (working directory, defaults to repo root; relative paths are repo-root-relative), and `env` (map of additional environment variables).
 
 ### Cascade order
 
@@ -124,7 +124,7 @@ For hooks, the cascade is per-phase replacement -- if `.sexton.yaml` defines `po
 
 ### Lifecycle hooks
 
-Hooks run shell commands at phase boundaries in the sync loop. Each hook runs with the repo root as working directory (override with `dir`) and receives `SEXTON_REPO_PATH`, `SEXTON_REPO_NAME`, and `SEXTON_HOOK` environment variables plus any custom variables from `env`. Multiple hooks per phase run sequentially in declaration order. A hook that exits non-zero halts the agent.
+Hooks run shell commands at phase boundaries in the sync loop. Each hook runs with the repo root as working directory (override with `dir`; relative values stay repo-root-relative) and receives `SEXTON_REPO_PATH`, `SEXTON_REPO_NAME`, and `SEXTON_HOOK` environment variables plus any custom variables from `env`. Multiple hooks per phase run sequentially in declaration order. A hook that exits non-zero halts the agent.
 
 | Hook | When it fires |
 |---|---|

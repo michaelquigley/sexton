@@ -64,7 +64,7 @@ func Resolve(entry *RepoEntry, defaults *RepoDefaults, local *RepoLocalConfig) (
 	explicitName := local.Name != "" || entry.Name != ""
 	name := coalesce(local.Name, entry.Name, filepath.Base(path))
 
-	hooks, err := resolveHooks(defaults.Hooks, entry.Hooks, local.Hooks)
+	hooks, err := resolveHooks(path, defaults.Hooks, entry.Hooks, local.Hooks)
 	if err != nil {
 		return nil, err
 	}
@@ -83,7 +83,7 @@ func Resolve(entry *RepoEntry, defaults *RepoDefaults, local *RepoLocalConfig) (
 
 const defaultHookTimeout = 30 * time.Second
 
-func resolveHooks(defaults, entry, local *HooksConfig) (*ResolvedHooks, error) {
+func resolveHooks(repoRoot string, defaults, entry, local *HooksConfig) (*ResolvedHooks, error) {
 	resolved := &ResolvedHooks{}
 
 	resolvePhase := func(localPhase, entryPhase, defaultsPhase []*HookEntry) ([]*ResolvedHook, error) {
@@ -112,7 +112,7 @@ func resolveHooks(defaults, entry, local *HooksConfig) (*ResolvedHooks, error) {
 			hooks[i] = &ResolvedHook{
 				Command: e.Command,
 				Timeout: timeout,
-				Dir:     ExpandPath(e.Dir),
+				Dir:     resolveHookDir(repoRoot, e.Dir),
 				Env:     e.Env,
 			}
 		}
@@ -148,6 +148,18 @@ func resolveHooks(defaults, entry, local *HooksConfig) (*ResolvedHooks, error) {
 	}
 
 	return resolved, nil
+}
+
+func resolveHookDir(repoRoot, dir string) string {
+	if dir == "" {
+		return ""
+	}
+
+	expanded := ExpandPath(dir)
+	if filepath.IsAbs(expanded) {
+		return filepath.Clean(expanded)
+	}
+	return filepath.Clean(filepath.Join(repoRoot, expanded))
 }
 
 func GlobalConfigPath() string {

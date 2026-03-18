@@ -240,3 +240,44 @@ func TestRunHooks_CustomDir(t *testing.T) {
 		t.Errorf("expected working directory %s, got %s", customDir, got)
 	}
 }
+
+func TestRunHooks_RelativeCustomDirResolvesAgainstRepoRoot(t *testing.T) {
+	repoDir := t.TempDir()
+	customDir := filepath.Join(repoDir, "scripts")
+	if err := os.MkdirAll(customDir, 0755); err != nil {
+		t.Fatalf("failed to create custom dir: %v", err)
+	}
+
+	pwdFile := filepath.Join(repoDir, "pwd.txt")
+	resolved, err := config.Resolve(
+		&config.RepoEntry{
+			Path: repoDir,
+			Hooks: &config.HooksConfig{
+				PostPull: []*config.HookEntry{
+					{Command: "pwd > " + pwdFile, Timeout: "10s", Dir: "scripts"},
+				},
+			},
+		},
+		&config.RepoDefaults{},
+		&config.RepoLocalConfig{},
+	)
+	if err != nil {
+		t.Fatalf("Resolve() error = %v", err)
+	}
+
+	a := &Agent{cfg: resolved}
+	err = a.runHooks(context.Background(), "post_pull", resolved.Hooks.PostPull)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	data, err := os.ReadFile(pwdFile)
+	if err != nil {
+		t.Fatalf("failed to read pwd file: %v", err)
+	}
+
+	got := strings.TrimSpace(string(data))
+	if got != customDir {
+		t.Errorf("expected working directory %s, got %s", customDir, got)
+	}
+}
