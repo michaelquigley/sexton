@@ -18,7 +18,7 @@ func init() {
 }
 
 func runSnooze(_ *cobra.Command, args []string) error {
-	client, conn, err := dialAgent()
+	client, conn, err := dialAgentFn()
 	if err != nil {
 		return fmt.Errorf("failed to connect to agent: %w", err)
 	}
@@ -30,10 +30,6 @@ func runSnooze(_ *cobra.Command, args []string) error {
 	})
 	if err != nil {
 		return fmt.Errorf("snooze request failed: %w", err)
-	}
-
-	if !resp.GetOk() {
-		return fmt.Errorf("snooze failed")
 	}
 
 	fmt.Printf("snoozed until %s\n", resp.GetExpires())

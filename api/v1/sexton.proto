@@ -42,7 +42,6 @@ message SyncRequest {
 }
 
 message SyncResponse {
-  bool ok = 1;
   string message = 2;
 }
 
@@ -52,7 +51,6 @@ message SnoozeRequest {
 }
 
 message SnoozeResponse {
-  bool ok = 1;
   string expires = 2; // RFC3339 timestamp
 }
 
@@ -61,6 +59,5 @@ message ResumeRequest {
 }
 
 message ResumeResponse {
-  bool ok = 1;
   string message = 2;
 }

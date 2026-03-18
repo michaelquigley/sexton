@@ -1,6 +1,11 @@
 package rpc
 
-import "time"
+import (
+	"errors"
+	"time"
+)
+
+var ErrRepoNotFound = errors.New("repo not found")
 
 // RepoInfo holds status information for a single monitored repo.
 type RepoInfo struct {

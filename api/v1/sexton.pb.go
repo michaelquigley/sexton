@@ -255,7 +255,6 @@ func (x *SyncRequest) GetRepo() string {
 
 type SyncResponse struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	Ok            bool                   `protobuf:"varint,1,opt,name=ok,proto3" json:"ok,omitempty"`
 	Message       string                 `protobuf:"bytes,2,opt,name=message,proto3" json:"message,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -289,13 +288,6 @@ func (x *SyncResponse) ProtoReflect() protoreflect.Message {
 // Deprecated: Use SyncResponse.ProtoReflect.Descriptor instead.
 func (*SyncResponse) Descriptor() ([]byte, []int) {
 	return file_api_v1_sexton_proto_rawDescGZIP(), []int{4}
-}
-
-func (x *SyncResponse) GetOk() bool {
-	if x != nil {
-		return x.Ok
-	}
-	return false
 }
 
 func (x *SyncResponse) GetMessage() string {
@@ -359,7 +351,6 @@ func (x *SnoozeRequest) GetDuration() string {
 
 type SnoozeResponse struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	Ok            bool                   `protobuf:"varint,1,opt,name=ok,proto3" json:"ok,omitempty"`
 	Expires       string                 `protobuf:"bytes,2,opt,name=expires,proto3" json:"expires,omitempty"` // RFC3339 timestamp
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -393,13 +384,6 @@ func (x *SnoozeResponse) ProtoReflect() protoreflect.Message {
 // Deprecated: Use SnoozeResponse.ProtoReflect.Descriptor instead.
 func (*SnoozeResponse) Descriptor() ([]byte, []int) {
 	return file_api_v1_sexton_proto_rawDescGZIP(), []int{6}
-}
-
-func (x *SnoozeResponse) GetOk() bool {
-	if x != nil {
-		return x.Ok
-	}
-	return false
 }
 
 func (x *SnoozeResponse) GetExpires() string {
@@ -455,7 +439,6 @@ func (x *ResumeRequest) GetRepo() string {
 
 type ResumeResponse struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	Ok            bool                   `protobuf:"varint,1,opt,name=ok,proto3" json:"ok,omitempty"`
 	Message       string                 `protobuf:"bytes,2,opt,name=message,proto3" json:"message,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -491,13 +474,6 @@ func (*ResumeResponse) Descriptor() ([]byte, []int) {
 	return file_api_v1_sexton_proto_rawDescGZIP(), []int{8}
 }
 
-func (x *ResumeResponse) GetOk() bool {
-	if x != nil {
-		return x.Ok
-	}
-	return false
-}
-
 func (x *ResumeResponse) GetMessage() string {
 	if x != nil {
 		return x.Message
@@ -526,20 +502,17 @@ const file_api_v1_sexton_proto_rawDesc = "" +
 	"\x0eStatusResponse\x12+\n" +
 	"\x05repos\x18\x01 \x03(\v2\x15.sexton.v1.RepoStatusR\x05repos\"!\n" +
 	"\vSyncRequest\x12\x12\n" +
-	"\x04repo\x18\x01 \x01(\tR\x04repo\"8\n" +
-	"\fSyncResponse\x12\x0e\n" +
-	"\x02ok\x18\x01 \x01(\bR\x02ok\x12\x18\n" +
+	"\x04repo\x18\x01 \x01(\tR\x04repo\"(\n" +
+	"\fSyncResponse\x12\x18\n" +
 	"\amessage\x18\x02 \x01(\tR\amessage\"?\n" +
 	"\rSnoozeRequest\x12\x12\n" +
 	"\x04repo\x18\x01 \x01(\tR\x04repo\x12\x1a\n" +
-	"\bduration\x18\x02 \x01(\tR\bduration\":\n" +
-	"\x0eSnoozeResponse\x12\x0e\n" +
-	"\x02ok\x18\x01 \x01(\bR\x02ok\x12\x18\n" +
+	"\bduration\x18\x02 \x01(\tR\bduration\"*\n" +
+	"\x0eSnoozeResponse\x12\x18\n" +
 	"\aexpires\x18\x02 \x01(\tR\aexpires\"#\n" +
 	"\rResumeRequest\x12\x12\n" +
-	"\x04repo\x18\x01 \x01(\tR\x04repo\":\n" +
-	"\x0eResumeResponse\x12\x0e\n" +
-	"\x02ok\x18\x01 \x01(\bR\x02ok\x12\x18\n" +
+	"\x04repo\x18\x01 \x01(\tR\x04repo\"*\n" +
+	"\x0eResumeResponse\x12\x18\n" +
 	"\amessage\x18\x02 \x01(\tR\amessage2\xfe\x01\n" +
 	"\x06Sexton\x12=\n" +
 	"\x06Status\x12\x18.sexton.v1.StatusRequest\x1a\x19.sexton.v1.StatusResponse\x127\n" +

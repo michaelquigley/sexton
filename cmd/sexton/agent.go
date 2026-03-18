@@ -54,7 +54,7 @@ func (a *containerAdapter) RepoStatus(repo string) ([]rpc.RepoInfo, error) {
 	if repo != "" {
 		ag := a.c.FindAgent(repo)
 		if ag == nil {
-			return nil, fmt.Errorf("repo '%s' not found", repo)
+			return nil, fmt.Errorf("%w: %q", rpc.ErrRepoNotFound, repo)
 		}
 		return []rpc.RepoInfo{agentToRepoInfo(ag)}, nil
 	}
@@ -69,7 +69,7 @@ func (a *containerAdapter) RepoStatus(repo string) ([]rpc.RepoInfo, error) {
 func (a *containerAdapter) TriggerSync(repo string) error {
 	ag := a.c.FindAgent(repo)
 	if ag == nil {
-		return fmt.Errorf("repo '%s' not found", repo)
+		return fmt.Errorf("%w: %q", rpc.ErrRepoNotFound, repo)
 	}
 	return ag.TriggerSync()
 }
@@ -77,7 +77,7 @@ func (a *containerAdapter) TriggerSync(repo string) error {
 func (a *containerAdapter) SnoozeRepo(repo string, d time.Duration) (time.Time, error) {
 	ag := a.c.FindAgent(repo)
 	if ag == nil {
-		return time.Time{}, fmt.Errorf("repo '%s' not found", repo)
+		return time.Time{}, fmt.Errorf("%w: %q", rpc.ErrRepoNotFound, repo)
 	}
 	return ag.Snooze(d)
 }
@@ -85,7 +85,7 @@ func (a *containerAdapter) SnoozeRepo(repo string, d time.Duration) (time.Time, 
 func (a *containerAdapter) ResumeRepo(repo string) error {
 	ag := a.c.FindAgent(repo)
 	if ag == nil {
-		return fmt.Errorf("repo '%s' not found", repo)
+		return fmt.Errorf("%w: %q", rpc.ErrRepoNotFound, repo)
 	}
 	return ag.Resume()
 }
