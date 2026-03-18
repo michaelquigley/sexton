@@ -217,7 +217,7 @@ func (a *Agent) sync() {
 	a.state = Syncing
 	a.mu.Unlock()
 
-	dl.Infof("sync started for '%s'", a.cfg.Name)
+	dl.Debugf("sync started for '%s'", a.cfg.Name)
 
 	ctx := context.Background()
 
@@ -237,6 +237,7 @@ func (a *Agent) sync() {
 
 		dl.Infof("generating commit message for '%s'", a.cfg.Name)
 		msg := a.generateCommitMessage(ctx, status)
+		dl.Infof("generated commit message '%v'", msg)
 
 		if err := a.git.Commit(ctx, msg); err != nil {
 			if !errors.Is(err, git.ErrNothingToCommit) {
@@ -292,7 +293,8 @@ func (a *Agent) sync() {
 	a.lastCommit = sha
 	a.mu.Unlock()
 
-	dl.Infof("sync complete for '%s'", a.cfg.Name)
+	dl.Debugf("sync complete for '%s'", a.cfg.Name)
+
 	if dirty {
 		a.alert("info", "sync complete ("+sha+")", nil)
 	}
