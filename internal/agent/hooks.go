@@ -3,6 +3,7 @@ package agent
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"os/exec"
 	"time"
@@ -43,6 +44,7 @@ func (a *Agent) runHooks(ctx context.Context, phase string, hooks []*config.Reso
 		start := time.Now()
 
 		err := cmd.Run()
+		hookErr := hookCtx.Err()
 		cancel()
 
 		if out := stdout.String(); out != "" {
@@ -53,9 +55,15 @@ func (a *Agent) runHooks(ctx context.Context, phase string, hooks []*config.Reso
 		}
 
 		if err != nil {
+			if hookErr != nil {
+				return fmt.Errorf("%s hook failed: command=%q: %w", phase, hook.Command, hookErr)
+			}
 			exitCode := -1
 			if exitErr, ok := err.(*exec.ExitError); ok {
 				exitCode = exitErr.ExitCode()
+			}
+			if errors.Is(err, context.Canceled) {
+				return fmt.Errorf("%s hook failed: command=%q: %w", phase, hook.Command, err)
 			}
 			return fmt.Errorf("%s hook failed: command=%q exit_code=%d stderr=%q: %w",
 				phase, hook.Command, exitCode, stderr.String(), err)

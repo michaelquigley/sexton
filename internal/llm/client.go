@@ -14,10 +14,11 @@ import (
 )
 
 type Client struct {
-	endpoint  string
-	model     string
-	apiKey    string
-	maxTokens int
+	endpoint   string
+	model      string
+	apiKey     string
+	maxTokens  int
+	httpClient *http.Client
 }
 
 // NewClient returns a Client for the given LLM config, or nil if the config is
@@ -38,17 +39,18 @@ func NewClient(cfg *config.LLMConfig) *Client {
 	}
 
 	return &Client{
-		endpoint:  cfg.Endpoint,
-		model:     cfg.Model,
-		apiKey:    apiKey,
-		maxTokens: maxTokens,
+		endpoint:   cfg.Endpoint,
+		model:      cfg.Model,
+		apiKey:     apiKey,
+		maxTokens:  maxTokens,
+		httpClient: &http.Client{},
 	}
 }
 
 type chatRequest struct {
-	Model    string        `json:"model"`
-	Messages []chatMessage `json:"messages"`
-	MaxTokens int          `json:"max_tokens,omitempty"`
+	Model     string        `json:"model"`
+	Messages  []chatMessage `json:"messages"`
+	MaxTokens int           `json:"max_tokens,omitempty"`
 }
 
 type chatMessage struct {
@@ -95,7 +97,12 @@ func (c *Client) Complete(ctx context.Context, systemPrompt string, userMessage 
 		httpReq.Header.Set("Authorization", "Bearer "+c.apiKey)
 	}
 
-	resp, err := http.DefaultClient.Do(httpReq)
+	httpClient := c.httpClient
+	if httpClient == nil {
+		httpClient = &http.Client{}
+	}
+
+	resp, err := httpClient.Do(httpReq)
 	if err != nil {
 		return "", fmt.Errorf("sending request: %w", err)
 	}

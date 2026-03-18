@@ -25,6 +25,14 @@ func (g *Git) IsRepo() bool {
 	return err == nil
 }
 
+func (g *Git) Status(ctx context.Context) (*Status, error) {
+	out, err := g.runCtx(ctx, "status", "--porcelain", "-b")
+	if err != nil {
+		return nil, err
+	}
+	return parseStatus(out), nil
+}
+
 func (g *Git) StageAll(ctx context.Context) error {
 	_, err := g.runCtx(ctx, "add", "-A")
 	return err
@@ -35,7 +43,7 @@ func (g *Git) Commit(ctx context.Context, message string) error {
 		return err
 	}
 
-	dirty, err := g.IsDirty()
+	dirty, err := g.IsDirty(ctx)
 	if err != nil {
 		return err
 	}
@@ -48,7 +56,7 @@ func (g *Git) Commit(ctx context.Context, message string) error {
 }
 
 func (g *Git) Pull(ctx context.Context, remote, branch string) (pulled bool, err error) {
-	dirty, err := g.IsDirty()
+	dirty, err := g.IsDirty(ctx)
 	if err != nil {
 		return false, err
 	}
@@ -89,44 +97,36 @@ func (g *Git) RebaseAbort(ctx context.Context) error {
 	return err
 }
 
-func (g *Git) Status() (*Status, error) {
-	out, err := g.run("status", "--porcelain", "-b")
-	if err != nil {
-		return nil, err
-	}
-	return parseStatus(out), nil
-}
-
 func (g *Git) Diff() (string, error) {
 	return g.run("diff", "HEAD")
 }
 
-func (g *Git) DiffStaged() (string, error) {
-	return g.run("diff", "--staged", "HEAD")
+func (g *Git) DiffStaged(ctx context.Context) (string, error) {
+	return g.runCtx(ctx, "diff", "--staged", "HEAD")
 }
 
-func (g *Git) DiffStat() (string, error) {
-	return g.run("diff", "--stat", "HEAD")
+func (g *Git) DiffStat(ctx context.Context) (string, error) {
+	return g.runCtx(ctx, "diff", "--stat", "HEAD")
 }
 
-func (g *Git) IsDirty() (bool, error) {
-	out, err := g.run("status", "--porcelain")
+func (g *Git) IsDirty(ctx context.Context) (bool, error) {
+	out, err := g.runCtx(ctx, "status", "--porcelain")
 	if err != nil {
 		return false, err
 	}
 	return strings.TrimSpace(out) != "", nil
 }
 
-func (g *Git) Branch() (string, error) {
-	out, err := g.run("rev-parse", "--abbrev-ref", "HEAD")
+func (g *Git) Branch(ctx context.Context) (string, error) {
+	out, err := g.runCtx(ctx, "rev-parse", "--abbrev-ref", "HEAD")
 	if err != nil {
 		return "", err
 	}
 	return strings.TrimSpace(out), nil
 }
 
-func (g *Git) ShortHEAD() (string, error) {
-	out, err := g.run("rev-parse", "--short", "HEAD")
+func (g *Git) ShortHEAD(ctx context.Context) (string, error) {
+	out, err := g.runCtx(ctx, "rev-parse", "--short", "HEAD")
 	if err != nil {
 		return "", err
 	}
@@ -147,6 +147,9 @@ func (g *Git) runCtx(ctx context.Context, args ...string) (string, error) {
 
 	err := cmd.Run()
 	if err != nil {
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return "", ctxErr
+		}
 		if stderr.Len() > 0 {
 			return stderr.String(), err
 		}

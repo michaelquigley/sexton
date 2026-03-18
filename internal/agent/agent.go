@@ -22,9 +22,12 @@ type Agent struct {
 	mu    sync.Mutex
 	state State
 
-	stopCh chan struct{}
-	doneCh chan struct{}
-	syncCh chan struct{}
+	stopCh   chan struct{}
+	doneCh   chan struct{}
+	syncCh   chan struct{}
+	runCtx   context.Context
+	cancel   context.CancelFunc
+	stopOnce sync.Once
 
 	snoozeTimer   *time.Timer
 	snoozeUntil   time.Time
@@ -36,20 +39,21 @@ type Agent struct {
 }
 
 type gitClient interface {
-	Branch() (string, error)
-	IsDirty() (bool, error)
-	Status() (*git.Status, error)
+	Branch(ctx context.Context) (string, error)
+	IsDirty(ctx context.Context) (bool, error)
+	Status(ctx context.Context) (*git.Status, error)
 	StageAll(ctx context.Context) error
 	Commit(ctx context.Context, message string) error
 	Pull(ctx context.Context, remote, branch string) (bool, error)
 	Push(ctx context.Context, remote, branch string) error
 	RebaseAbort(ctx context.Context) error
-	ShortHEAD() (string, error)
-	DiffStaged() (string, error)
-	DiffStat() (string, error)
+	ShortHEAD(ctx context.Context) (string, error)
+	DiffStaged(ctx context.Context) (string, error)
+	DiffStat(ctx context.Context) (string, error)
 }
 
 func New(cfg *config.ResolvedRepo, g *git.Git) *Agent {
+	runCtx, cancel := context.WithCancel(context.Background())
 	return &Agent{
 		cfg:    cfg,
 		git:    g,
@@ -57,6 +61,8 @@ func New(cfg *config.ResolvedRepo, g *git.Git) *Agent {
 		stopCh: make(chan struct{}),
 		doneCh: make(chan struct{}),
 		syncCh: make(chan struct{}, 1),
+		runCtx: runCtx,
+		cancel: cancel,
 	}
 }
 
@@ -72,7 +78,10 @@ func (a *Agent) Start() error {
 }
 
 func (a *Agent) Stop() error {
-	close(a.stopCh)
+	a.stopOnce.Do(func() {
+		a.cancel()
+		close(a.stopCh)
+	})
 	<-a.doneCh
 	return nil
 }
@@ -92,7 +101,7 @@ func (a *Agent) Name() string {
 }
 
 func (a *Agent) Branch() string {
-	branch, err := a.git.Branch()
+	branch, err := a.git.Branch(context.Background())
 	if err != nil {
 		return "unknown"
 	}
@@ -222,6 +231,12 @@ func (a *Agent) run() {
 }
 
 func (a *Agent) sync() {
+	ctx, cancel := context.WithCancel(a.runCtx)
+	defer cancel()
+	if a.syncCanceled(ctx, nil) {
+		return
+	}
+
 	a.mu.Lock()
 	if a.state == Snoozed {
 		a.mu.Unlock()
@@ -229,82 +244,116 @@ func (a *Agent) sync() {
 	}
 	a.state = Syncing
 	a.mu.Unlock()
+	defer a.clearCanceledSyncState(ctx)
 
 	dl.Debugf("sync started for '%s'", a.cfg.Name)
 
-	ctx := context.Background()
-
-	if err := a.validateBranch(); err != nil {
+	if err := a.validateBranch(ctx); err != nil {
+		if a.syncCanceled(ctx, err) {
+			return
+		}
 		a.setError("branch mismatch", err)
 		return
 	}
-	if a.pauseIfRequested() {
+	if a.shouldAbortSync(ctx) {
 		return
 	}
 
-	dirty, err := a.git.IsDirty()
+	dirty, err := a.git.IsDirty(ctx)
 	if err != nil {
+		if a.syncCanceled(ctx, err) {
+			return
+		}
 		a.setError("failed to check status", err)
 		return
 	}
-	if a.pauseIfRequested() {
+	if a.shouldAbortSync(ctx) {
 		return
 	}
 
 	if dirty {
 		if err := a.runHooks(ctx, "pre_commit", a.cfg.Hooks.PreCommit); err != nil {
+			if a.syncCanceled(ctx, err) {
+				return
+			}
 			a.setError("pre_commit hook failed", err)
 			return
 		}
-		if a.pauseIfRequested() {
+		if a.shouldAbortSync(ctx) {
 			return
 		}
 
-		status, _ := a.git.Status()
+		status, err := a.git.Status(ctx)
+		if err != nil {
+			if a.syncCanceled(ctx, err) {
+				return
+			}
+			a.setError("failed to read git status", err)
+			return
+		}
 
 		if err := a.git.StageAll(ctx); err != nil {
+			if a.syncCanceled(ctx, err) {
+				return
+			}
 			a.setError("staging failed", err)
 			return
 		}
-		if a.pauseIfRequested() {
+		if a.shouldAbortSync(ctx) {
 			return
 		}
 
 		dl.Infof("generating commit message for '%s'", a.cfg.Name)
-		msg := a.generateCommitMessage(ctx, status)
+		msg, err := a.generateCommitMessage(ctx, status)
+		if err != nil {
+			if a.syncCanceled(ctx, err) {
+				return
+			}
+			a.setError("commit message generation failed", err)
+			return
+		}
 		dl.Infof("generated commit message '%v'", msg)
-		if a.pauseIfRequested() {
+		if a.shouldAbortSync(ctx) {
 			return
 		}
 
 		if err := a.git.Commit(ctx, msg); err != nil {
+			if a.syncCanceled(ctx, err) {
+				return
+			}
 			if !errors.Is(err, git.ErrNothingToCommit) {
 				a.setError("commit failed", err)
 				return
 			}
 		}
-		if a.pauseIfRequested() {
+		if a.shouldAbortSync(ctx) {
 			return
 		}
 
 		if err := a.runHooks(ctx, "post_commit", a.cfg.Hooks.PostCommit); err != nil {
+			if a.syncCanceled(ctx, err) {
+				return
+			}
 			a.setError("post_commit hook failed", err)
 			return
 		}
-		if a.pauseIfRequested() {
+		if a.shouldAbortSync(ctx) {
 			return
 		}
 	}
 
 	_, err = a.git.Pull(ctx, a.cfg.Remote, a.cfg.Branch)
 	if err != nil {
+		if a.syncCanceled(ctx, err) {
+			return
+		}
 		if errors.Is(err, git.ErrConflict) {
 			_ = a.git.RebaseAbort(ctx)
 			a.setError("rebase conflict", err)
 			return
 		}
 		if errors.Is(err, git.ErrNoRemote) {
-			if a.pauseIfRequested() {
+			if a.shouldAbortSync(ctx) {
 				return
 			}
 			// no remote configured — commit-only mode
@@ -312,7 +361,7 @@ func (a *Agent) sync() {
 			return
 		}
 		if errors.Is(err, git.ErrDirtyWorkingTree) {
-			if a.pauseIfRequested() {
+			if a.shouldAbortSync(ctx) {
 				return
 			}
 			// shouldn't happen since we committed above, but handle gracefully
@@ -325,29 +374,38 @@ func (a *Agent) sync() {
 		a.setError("pull failed", err)
 		return
 	}
-	if a.pauseIfRequested() {
+	if a.shouldAbortSync(ctx) {
 		return
 	}
 
 	if err := a.runHooks(ctx, "post_pull", a.cfg.Hooks.PostPull); err != nil {
+		if a.syncCanceled(ctx, err) {
+			return
+		}
 		a.setError("post_pull hook failed", err)
 		return
 	}
-	if a.pauseIfRequested() {
+	if a.shouldAbortSync(ctx) {
 		return
 	}
 
 	if err := a.runHooks(ctx, "pre_push", a.cfg.Hooks.PrePush); err != nil {
+		if a.syncCanceled(ctx, err) {
+			return
+		}
 		a.setError("pre_push hook failed", err)
 		return
 	}
-	if a.pauseIfRequested() {
+	if a.shouldAbortSync(ctx) {
 		return
 	}
 
 	if err := a.git.Push(ctx, a.cfg.Remote, a.cfg.Branch); err != nil {
+		if a.syncCanceled(ctx, err) {
+			return
+		}
 		if errors.Is(err, git.ErrNoRemote) {
-			if a.pauseIfRequested() {
+			if a.shouldAbortSync(ctx) {
 				return
 			}
 			a.completeSync("")
@@ -356,20 +414,30 @@ func (a *Agent) sync() {
 		a.setError("push failed", err)
 		return
 	}
-	if a.pauseIfRequested() {
+	if a.shouldAbortSync(ctx) {
 		return
 	}
 
 	if err := a.runHooks(ctx, "post_sync", a.cfg.Hooks.PostSync); err != nil {
+		if a.syncCanceled(ctx, err) {
+			return
+		}
 		a.setError("post_sync hook failed", err)
 		return
 	}
-	if a.pauseIfRequested() {
+	if a.shouldAbortSync(ctx) {
 		return
 	}
 
-	sha, _ := a.git.ShortHEAD()
-	if a.pauseIfRequested() {
+	sha, err := a.git.ShortHEAD(ctx)
+	if err != nil {
+		if a.syncCanceled(ctx, err) {
+			return
+		}
+		a.setError("failed to read HEAD", err)
+		return
+	}
+	if a.shouldAbortSync(ctx) {
 		return
 	}
 
@@ -438,6 +506,13 @@ func (a *Agent) pauseIfRequested() bool {
 	return true
 }
 
+func (a *Agent) shouldAbortSync(ctx context.Context) bool {
+	if a.syncCanceled(ctx, nil) {
+		return true
+	}
+	return a.pauseIfRequested()
+}
+
 func (a *Agent) completeSync(sha string) {
 	a.mu.Lock()
 	a.state = Watching
@@ -449,8 +524,8 @@ func (a *Agent) completeSync(sha string) {
 	a.mu.Unlock()
 }
 
-func (a *Agent) validateBranch() error {
-	current, err := a.git.Branch()
+func (a *Agent) validateBranch(ctx context.Context) error {
+	current, err := a.git.Branch(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to determine current branch: %w", err)
 	}
@@ -496,25 +571,31 @@ func (a *Agent) alert(severity, message string, err error) {
 
 const maxDiffBytes = 32 * 1024
 
-func (a *Agent) generateCommitMessage(ctx context.Context, status *git.Status) string {
+func (a *Agent) generateCommitMessage(ctx context.Context, status *git.Status) (string, error) {
 	fallback := git.GenerateCommitMessage(status)
 
 	if a.llm == nil {
 		dl.Warnf("no llm configured for '%s', using fallback commit message", a.cfg.Name)
-		return fallback
+		return fallback, nil
 	}
 
-	diff, err := a.git.DiffStaged()
+	diff, err := a.git.DiffStaged(ctx)
 	if err != nil {
+		if a.syncCanceled(ctx, err) {
+			return "", err
+		}
 		dl.Warnf("failed to get staged diff for '%s': %v", a.cfg.Name, err)
-		return fallback
+		return fallback, nil
 	}
 
 	if len(diff) > maxDiffBytes {
-		diff, err = a.git.DiffStat()
+		diff, err = a.git.DiffStat(ctx)
 		if err != nil {
+			if a.syncCanceled(ctx, err) {
+				return "", err
+			}
 			dl.Warnf("failed to get diff stat for '%s': %v", a.cfg.Name, err)
-			return fallback
+			return fallback, nil
 		}
 	}
 
@@ -524,15 +605,33 @@ func (a *Agent) generateCommitMessage(ctx context.Context, status *git.Status) s
 
 	result, err := a.llm.Complete(ctx, a.cfg.CommitMessagePrompt, diff, 0)
 	if err != nil {
+		if a.syncCanceled(ctx, err) {
+			return "", err
+		}
 		dl.Warnf("llm commit message failed for '%s': %v", a.cfg.Name, err)
-		return fallback
+		return fallback, nil
 	}
 
 	if result == "" {
 		dl.Warnf("llm returned empty commit message for '%s', using fallback", a.cfg.Name)
-		return fallback
+		return fallback, nil
 	}
 
 	dl.Infof("llm generated commit message for '%s'", a.cfg.Name)
-	return result
+	return result, nil
+}
+
+func (a *Agent) syncCanceled(ctx context.Context, err error) bool {
+	return errors.Is(ctx.Err(), context.Canceled) || errors.Is(err, context.Canceled)
+}
+
+func (a *Agent) clearCanceledSyncState(ctx context.Context) {
+	if !a.syncCanceled(ctx, nil) {
+		return
+	}
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if a.state == Syncing {
+		a.state = Watching
+	}
 }

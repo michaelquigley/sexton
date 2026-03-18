@@ -3,11 +3,16 @@ package agent
 import (
 	"context"
 	"errors"
+	"net/http"
+	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
 	"github.com/michaelquigley/sexton/internal/config"
 	"github.com/michaelquigley/sexton/internal/git"
+	"github.com/michaelquigley/sexton/internal/llm"
 )
 
 type stubGit struct {
@@ -34,60 +39,60 @@ type stubGit struct {
 	diffStagedErr  error
 	diffStat       string
 	diffStatErr    error
-	onIsDirty      func()
-	onStageAll     func()
-	onCommit       func()
-	onPull         func()
-	onPush         func()
-	onShortHEAD    func()
+	onIsDirty      func(context.Context)
+	onStageAll     func(context.Context)
+	onCommit       func(context.Context)
+	onPull         func(context.Context)
+	onPush         func(context.Context)
+	onShortHEAD    func(context.Context)
 }
 
-func (g *stubGit) Branch() (string, error) { return g.branch, g.branchErr }
-func (g *stubGit) IsDirty() (bool, error) {
+func (g *stubGit) Branch(context.Context) (string, error) { return g.branch, g.branchErr }
+func (g *stubGit) IsDirty(ctx context.Context) (bool, error) {
 	if g.onIsDirty != nil {
-		g.onIsDirty()
+		g.onIsDirty(ctx)
 	}
 	return g.dirty, g.dirtyErr
 }
-func (g *stubGit) Status() (*git.Status, error) { return g.status, g.statusErr }
-func (g *stubGit) StageAll(context.Context) error {
+func (g *stubGit) Status(context.Context) (*git.Status, error) { return g.status, g.statusErr }
+func (g *stubGit) StageAll(ctx context.Context) error {
 	g.stageCalls++
 	if g.onStageAll != nil {
-		g.onStageAll()
+		g.onStageAll(ctx)
 	}
 	return g.stageErr
 }
-func (g *stubGit) Commit(context.Context, string) error {
+func (g *stubGit) Commit(ctx context.Context, _ string) error {
 	g.commitCalls++
 	if g.onCommit != nil {
-		g.onCommit()
+		g.onCommit(ctx)
 	}
 	return g.commitErr
 }
-func (g *stubGit) Pull(context.Context, string, string) (bool, error) {
+func (g *stubGit) Pull(ctx context.Context, _ string, _ string) (bool, error) {
 	g.pullCalls++
 	if g.onPull != nil {
-		g.onPull()
+		g.onPull(ctx)
 	}
 	return false, g.pullErr
 }
-func (g *stubGit) Push(context.Context, string, string) error {
+func (g *stubGit) Push(ctx context.Context, _ string, _ string) error {
 	g.pushCalls++
 	if g.onPush != nil {
-		g.onPush()
+		g.onPush(ctx)
 	}
 	return g.pushErr
 }
 func (g *stubGit) RebaseAbort(context.Context) error { g.rebaseAborts++; return g.rebaseAbortErr }
-func (g *stubGit) ShortHEAD() (string, error) {
+func (g *stubGit) ShortHEAD(ctx context.Context) (string, error) {
 	g.shortHEADCalls++
 	if g.onShortHEAD != nil {
-		g.onShortHEAD()
+		g.onShortHEAD(ctx)
 	}
 	return g.shortHEAD, g.shortHEADErr
 }
-func (g *stubGit) DiffStaged() (string, error) { return g.diffStaged, g.diffStagedErr }
-func (g *stubGit) DiffStat() (string, error)   { return g.diffStat, g.diffStatErr }
+func (g *stubGit) DiffStaged(context.Context) (string, error) { return g.diffStaged, g.diffStagedErr }
+func (g *stubGit) DiffStat(context.Context) (string, error)   { return g.diffStat, g.diffStatErr }
 
 type recordingAlerter struct {
 	events []AlertEvent
@@ -105,6 +110,7 @@ func newAgentForTest(g gitClient, alerter Alerter) *Agent {
 	if sg, ok := g.(*stubGit); ok && sg.branch == "" && sg.branchErr == nil {
 		sg.branch = "main"
 	}
+	runCtx, cancel := context.WithCancel(context.Background())
 
 	return &Agent{
 		cfg: &config.ResolvedRepo{
@@ -121,6 +127,8 @@ func newAgentForTest(g gitClient, alerter Alerter) *Agent {
 		stopCh:  make(chan struct{}),
 		doneCh:  make(chan struct{}),
 		syncCh:  make(chan struct{}, 1),
+		runCtx:  runCtx,
+		cancel:  cancel,
 	}
 }
 
@@ -309,7 +317,7 @@ func TestSnoozeDuringSyncWaitsForCheckpointAndStopsLaterPhases(t *testing.T) {
 
 	g := &stubGit{
 		shortHEAD: "abc123",
-		onPull: func() {
+		onPull: func(context.Context) {
 			close(reachedPull)
 			<-releasePull
 		},
@@ -353,7 +361,7 @@ func TestSnoozeDropsQueuedSyncWhileSyncing(t *testing.T) {
 	releasePull := make(chan struct{})
 
 	g := &stubGit{
-		onPull: func() {
+		onPull: func(context.Context) {
 			close(reachedPull)
 			<-releasePull
 		},
@@ -391,7 +399,7 @@ func TestResumeClearsDeferredSnoozeAndQueuesRetry(t *testing.T) {
 
 	g := &stubGit{
 		shortHEAD: "abc123",
-		onPull: func() {
+		onPull: func(context.Context) {
 			close(reachedPull)
 			<-releasePull
 		},
@@ -432,4 +440,172 @@ func TestResumeClearsDeferredSnoozeAndQueuesRetry(t *testing.T) {
 		t.Fatal("expected exactly one queued retry after resume")
 	default:
 	}
+}
+
+func TestStopCancelsSyncBlockedInDirtyCheck(t *testing.T) {
+	reachedDirty := make(chan struct{})
+
+	g := &stubGit{
+		onIsDirty: func(ctx context.Context) {
+			close(reachedDirty)
+			<-ctx.Done()
+		},
+	}
+	alerts := &recordingAlerter{}
+	a := newAgentForTest(g, alerts)
+
+	if err := a.Start(); err != nil {
+		t.Fatalf("Start() error = %v", err)
+	}
+	<-reachedDirty
+
+	stopAgentAndWait(t, a)
+
+	if got := a.ErrorDetail(); got != "" {
+		t.Fatalf("ErrorDetail() = %q, want empty after shutdown cancellation", got)
+	}
+	if got := a.State(); got == Error {
+		t.Fatalf("State() = %s, want non-error after shutdown cancellation", got)
+	}
+	if len(alerts.events) != 0 {
+		t.Fatalf("expected no alerts on shutdown cancellation, got %d", len(alerts.events))
+	}
+}
+
+func TestStopCancelsSyncBlockedInPull(t *testing.T) {
+	reachedPull := make(chan struct{})
+
+	g := &stubGit{
+		onPull: func(ctx context.Context) {
+			close(reachedPull)
+			<-ctx.Done()
+		},
+	}
+	alerts := &recordingAlerter{}
+	a := newAgentForTest(g, alerts)
+
+	if err := a.Start(); err != nil {
+		t.Fatalf("Start() error = %v", err)
+	}
+	<-reachedPull
+
+	stopAgentAndWait(t, a)
+
+	if got := a.ErrorDetail(); got != "" {
+		t.Fatalf("ErrorDetail() = %q, want empty after shutdown cancellation", got)
+	}
+	if len(alerts.events) != 0 {
+		t.Fatalf("expected no alerts on shutdown cancellation, got %d", len(alerts.events))
+	}
+}
+
+func TestStopCancelsSyncBlockedInHook(t *testing.T) {
+	dir := t.TempDir()
+	marker := filepath.Join(dir, "hook-started")
+
+	g := &stubGit{
+		dirty:  true,
+		status: &git.Status{},
+	}
+	alerts := &recordingAlerter{}
+	a := newAgentForTest(g, alerts)
+	a.cfg.Hooks.PreCommit = []*config.ResolvedHook{
+		{
+			Command: "touch " + marker + " && sleep 60",
+			Dir:     dir,
+			Timeout: time.Minute,
+		},
+	}
+
+	if err := a.Start(); err != nil {
+		t.Fatalf("Start() error = %v", err)
+	}
+	waitForFile(t, marker)
+
+	stopAgentAndWait(t, a)
+
+	if g.stageCalls != 0 {
+		t.Fatalf("expected staging to be skipped after hook cancellation, got %d calls", g.stageCalls)
+	}
+	if got := a.ErrorDetail(); got != "" {
+		t.Fatalf("ErrorDetail() = %q, want empty after shutdown cancellation", got)
+	}
+	if len(alerts.events) != 0 {
+		t.Fatalf("expected no alerts on shutdown cancellation, got %d", len(alerts.events))
+	}
+}
+
+func TestStopCancelsSyncBlockedInLLMRequest(t *testing.T) {
+	requestStarted := make(chan struct{})
+	releaseRequest := make(chan struct{})
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		close(requestStarted)
+		<-releaseRequest
+	}))
+	defer server.Close()
+	defer close(releaseRequest)
+
+	g := &stubGit{
+		dirty:      true,
+		status:     &git.Status{},
+		diffStaged: "diff",
+	}
+	alerts := &recordingAlerter{}
+	a := newAgentForTest(g, alerts)
+	a.llm = llm.NewClient(&config.LLMConfig{
+		Endpoint: server.URL,
+		Model:    "test-model",
+	})
+
+	if err := a.Start(); err != nil {
+		t.Fatalf("Start() error = %v", err)
+	}
+	<-requestStarted
+
+	stopAgentAndWait(t, a)
+
+	if g.commitCalls != 0 {
+		t.Fatalf("expected commit to be skipped after LLM cancellation, got %d calls", g.commitCalls)
+	}
+	if g.pullCalls != 0 {
+		t.Fatalf("expected pull to be skipped after LLM cancellation, got %d calls", g.pullCalls)
+	}
+	if got := a.ErrorDetail(); got != "" {
+		t.Fatalf("ErrorDetail() = %q, want empty after shutdown cancellation", got)
+	}
+	if len(alerts.events) != 0 {
+		t.Fatalf("expected no alerts on shutdown cancellation, got %d", len(alerts.events))
+	}
+}
+
+func stopAgentAndWait(t *testing.T, a *Agent) {
+	t.Helper()
+
+	done := make(chan error, 1)
+	go func() {
+		done <- a.Stop()
+	}()
+
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("Stop() error = %v", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("Stop() did not return after shutdown cancellation")
+	}
+}
+
+func waitForFile(t *testing.T, path string) {
+	t.Helper()
+
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		if _, err := os.Stat(path); err == nil {
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	t.Fatalf("timed out waiting for %s", path)
 }
