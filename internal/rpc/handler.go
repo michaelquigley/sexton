@@ -18,7 +18,7 @@ type handler struct {
 func (h *handler) Status(_ context.Context, req *sextonv1.StatusRequest) (*sextonv1.StatusResponse, error) {
 	infos, err := h.ctrl.RepoStatus(req.GetRepo())
 	if err != nil {
-		return nil, err
+		return nil, operationError(err)
 	}
 
 	resp := &sextonv1.StatusResponse{}
@@ -75,6 +75,9 @@ func (h *handler) Resume(_ context.Context, req *sextonv1.ResumeRequest) (*sexto
 func operationError(err error) error {
 	if errors.Is(err, ErrRepoNotFound) {
 		return status.Error(codes.NotFound, err.Error())
+	}
+	if errors.Is(err, ErrAmbiguousRepo) {
+		return status.Error(codes.InvalidArgument, err.Error())
 	}
 	return status.Error(codes.FailedPrecondition, err.Error())
 }

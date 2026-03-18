@@ -61,6 +61,7 @@ func Resolve(entry *RepoEntry, defaults *RepoDefaults, local *RepoLocalConfig) (
 	}
 
 	path := ExpandPath(entry.Path)
+	explicitName := local.Name != "" || entry.Name != ""
 	name := coalesce(local.Name, entry.Name, filepath.Base(path))
 
 	hooks, err := resolveHooks(defaults.Hooks, entry.Hooks, local.Hooks)
@@ -71,6 +72,7 @@ func Resolve(entry *RepoEntry, defaults *RepoDefaults, local *RepoLocalConfig) (
 	return &ResolvedRepo{
 		Path:                path,
 		Name:                name,
+		ExplicitName:        explicitName,
 		PollInterval:        poll,
 		Branch:              coalesce(local.Branch, entry.Branch, defaults.Branch, "main"),
 		Remote:              coalesce(local.Remote, entry.Remote, defaults.Remote, "origin"),

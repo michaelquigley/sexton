@@ -21,7 +21,7 @@ func init() {
 }
 
 func runStatus(_ *cobra.Command, args []string) error {
-	client, conn, err := dialAgent()
+	client, conn, err := dialAgentFn()
 	if err != nil {
 		return fmt.Errorf("failed to connect to agent: %w", err)
 	}

@@ -12,6 +12,8 @@ import (
 )
 
 type stubController struct {
+	statusInfos    []RepoInfo
+	statusErr      error
 	triggerSyncErr error
 	snoozeErr      error
 	snoozeExpires  time.Time
@@ -19,7 +21,7 @@ type stubController struct {
 }
 
 func (s stubController) RepoStatus(string) ([]RepoInfo, error) {
-	return nil, nil
+	return s.statusInfos, s.statusErr
 }
 
 func (s stubController) TriggerSync(string) error {
@@ -43,6 +45,23 @@ func TestHandlerSyncSuccess(t *testing.T) {
 	}
 	if got := resp.GetMessage(); got != "sync triggered" {
 		t.Fatalf("Sync() message = %q, want %q", got, "sync triggered")
+	}
+}
+
+func TestHandlerStatusFailureUsesRPCError(t *testing.T) {
+	h := &handler{ctrl: stubController{
+		statusErr: NewAmbiguousRepoError("grimoire", []string{
+			"/repos/alpha/grimoire",
+			"/repos/beta/grimoire",
+		}),
+	}}
+
+	resp, err := h.Status(context.Background(), &sextonv1.StatusRequest{Repo: "grimoire"})
+	if resp != nil {
+		t.Fatalf("Status() resp = %#v, want nil on error", resp)
+	}
+	if status.Code(err) != codes.InvalidArgument {
+		t.Fatalf("Status() code = %v, want %v", status.Code(err), codes.InvalidArgument)
 	}
 }
 
@@ -132,5 +151,15 @@ func TestOperationErrorMapsRepoNotFound(t *testing.T) {
 	err := operationError(errors.Join(ErrRepoNotFound, errors.New(`repo "missing"`)))
 	if status.Code(err) != codes.NotFound {
 		t.Fatalf("operationError() code = %v, want %v", status.Code(err), codes.NotFound)
+	}
+}
+
+func TestOperationErrorMapsAmbiguousRepo(t *testing.T) {
+	err := operationError(NewAmbiguousRepoError("grimoire", []string{
+		"/repos/alpha/grimoire",
+		"/repos/beta/grimoire",
+	}))
+	if status.Code(err) != codes.InvalidArgument {
+		t.Fatalf("operationError() code = %v, want %v", status.Code(err), codes.InvalidArgument)
 	}
 }

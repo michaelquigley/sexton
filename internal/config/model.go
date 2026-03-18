@@ -80,6 +80,7 @@ type ResolvedHooks struct {
 type ResolvedRepo struct {
 	Path                string
 	Name                string
+	ExplicitName        bool
 	PollInterval        time.Duration
 	Branch              string
 	Remote              string

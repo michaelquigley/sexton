@@ -2,10 +2,31 @@ package rpc
 
 import (
 	"errors"
+	"fmt"
+	"strings"
 	"time"
 )
 
 var ErrRepoNotFound = errors.New("repo not found")
+var ErrAmbiguousRepo = errors.New("ambiguous repo")
+
+type AmbiguousRepoError struct {
+	Query   string
+	Matches []string
+}
+
+func NewAmbiguousRepoError(query string, matches []string) error {
+	copied := append([]string(nil), matches...)
+	return &AmbiguousRepoError{Query: query, Matches: copied}
+}
+
+func (e *AmbiguousRepoError) Error() string {
+	return fmt.Sprintf("ambiguous repo %q; matches: %s; use configured name or full path", e.Query, strings.Join(e.Matches, ", "))
+}
+
+func (e *AmbiguousRepoError) Unwrap() error {
+	return ErrAmbiguousRepo
+}
 
 // RepoInfo holds status information for a single monitored repo.
 type RepoInfo struct {

@@ -103,7 +103,7 @@ hooks:
 | `llm.model` | global | (required) | Model identifier |
 | `llm.api_key_env` | global | -- | Env var containing the API key |
 | `llm.max_tokens` | global | `512` | Max tokens for diff context sent to LLM |
-| `name` | repo | basename of path | Display name for the repo |
+| `name` | repo | basename of path | Display name and stable control-plane identifier for the repo when explicitly set |
 | `poll_interval` | global, repo | `30s` | Duration between poll cycles |
 | `branch` | global, repo | `main` | Branch Sexton requires the repo to be checked out on before syncing |
 | `remote` | global, repo | `origin` | Git remote Sexton explicitly pulls from and pushes to |
@@ -150,6 +150,8 @@ Runs in the foreground. Suitable for systemd or launchd.
 sexton status          # all repos
 sexton status grimoire # specific repo
 ```
+
+If multiple repos share the same basename, target them by configured `name` or full path. Basename lookup only works when it resolves to a single repo.
 
 The `BRANCH` column shows the repo's actual current checkout. If it differs from the configured `branch`, the repo enters `error` with a mismatch message.
 

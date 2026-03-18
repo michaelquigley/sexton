@@ -59,8 +59,33 @@ func NewContainer(cfg *config.GlobalConfig) (*Container, error) {
 	if len(c.Agents) == 0 {
 		return nil, fmt.Errorf("no valid repos to watch")
 	}
+	if err := validateRepoIdentifiers(c.Agents); err != nil {
+		return nil, err
+	}
 
 	dl.Infof("starting sexton with %d repo(s)", len(c.Agents))
 
 	return c, nil
+}
+
+func validateRepoIdentifiers(agents []*Agent) error {
+	paths := make(map[string]string, len(agents))
+	names := make(map[string]string, len(agents))
+
+	for _, ag := range agents {
+		if prev, ok := paths[ag.cfg.Path]; ok {
+			return fmt.Errorf("duplicate repo path %q for %q and %q", ag.cfg.Path, prev, ag.cfg.Name)
+		}
+		paths[ag.cfg.Path] = ag.cfg.Name
+
+		if !ag.cfg.ExplicitName {
+			continue
+		}
+		if prev, ok := names[ag.cfg.Name]; ok {
+			return fmt.Errorf("duplicate configured repo name %q for %q and %q", ag.cfg.Name, prev, ag.cfg.Path)
+		}
+		names[ag.cfg.Name] = ag.cfg.Path
+	}
+
+	return nil
 }

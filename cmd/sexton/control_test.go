@@ -20,6 +20,8 @@ type fakeAgentConn struct{}
 func (fakeAgentConn) Close() error { return nil }
 
 type fakeSextonClient struct {
+	statusResp *sextonv1.StatusResponse
+	statusErr  error
 	syncResp   *sextonv1.SyncResponse
 	syncErr    error
 	snoozeResp *sextonv1.SnoozeResponse
@@ -29,7 +31,10 @@ type fakeSextonClient struct {
 }
 
 func (f fakeSextonClient) Status(context.Context, *sextonv1.StatusRequest, ...grpc.CallOption) (*sextonv1.StatusResponse, error) {
-	return nil, errors.New("unexpected Status call")
+	if f.statusResp == nil && f.statusErr == nil {
+		return nil, errors.New("unexpected Status call")
+	}
+	return f.statusResp, f.statusErr
 }
 
 func (f fakeSextonClient) Sync(context.Context, *sextonv1.SyncRequest, ...grpc.CallOption) (*sextonv1.SyncResponse, error) {
@@ -58,6 +63,27 @@ func TestRunSyncSuccess(t *testing.T) {
 
 	if output != "sync triggered\n" {
 		t.Fatalf("runSync() output = %q, want %q", output, "sync triggered\n")
+	}
+}
+
+func TestRunStatusAmbiguousRepoReturnsError(t *testing.T) {
+	restore := stubDialAgent(t, fakeSextonClient{
+		statusErr: status.Error(codes.InvalidArgument, `ambiguous repo "grimoire"`),
+	}, nil)
+	defer restore()
+
+	output := captureStdout(t, func() {
+		err := runStatus(nil, []string{"grimoire"})
+		if err == nil {
+			t.Fatal("runStatus() error = nil, want non-nil")
+		}
+		if !strings.Contains(err.Error(), "status request failed") {
+			t.Fatalf("runStatus() error = %q, want wrapped request failure", err)
+		}
+	})
+
+	if output != "" {
+		t.Fatalf("runStatus() output = %q, want empty output on failure", output)
 	}
 }
 

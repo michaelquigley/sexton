@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"time"
 
@@ -52,9 +53,9 @@ type containerAdapter struct {
 
 func (a *containerAdapter) RepoStatus(repo string) ([]rpc.RepoInfo, error) {
 	if repo != "" {
-		ag := a.c.FindAgent(repo)
-		if ag == nil {
-			return nil, fmt.Errorf("%w: %q", rpc.ErrRepoNotFound, repo)
+		ag, err := a.resolveAgent(repo)
+		if err != nil {
+			return nil, err
 		}
 		return []rpc.RepoInfo{agentToRepoInfo(ag)}, nil
 	}
@@ -67,27 +68,46 @@ func (a *containerAdapter) RepoStatus(repo string) ([]rpc.RepoInfo, error) {
 }
 
 func (a *containerAdapter) TriggerSync(repo string) error {
-	ag := a.c.FindAgent(repo)
-	if ag == nil {
-		return fmt.Errorf("%w: %q", rpc.ErrRepoNotFound, repo)
+	ag, err := a.resolveAgent(repo)
+	if err != nil {
+		return err
 	}
 	return ag.TriggerSync()
 }
 
 func (a *containerAdapter) SnoozeRepo(repo string, d time.Duration) (time.Time, error) {
-	ag := a.c.FindAgent(repo)
-	if ag == nil {
-		return time.Time{}, fmt.Errorf("%w: %q", rpc.ErrRepoNotFound, repo)
+	ag, err := a.resolveAgent(repo)
+	if err != nil {
+		return time.Time{}, err
 	}
 	return ag.Snooze(d)
 }
 
 func (a *containerAdapter) ResumeRepo(repo string) error {
-	ag := a.c.FindAgent(repo)
-	if ag == nil {
-		return fmt.Errorf("%w: %q", rpc.ErrRepoNotFound, repo)
+	ag, err := a.resolveAgent(repo)
+	if err != nil {
+		return err
 	}
 	return ag.Resume()
+}
+
+func (a *containerAdapter) resolveAgent(repo string) (*agent.Agent, error) {
+	ag, err := a.c.ResolveAgent(repo)
+	if err == nil {
+		return ag, nil
+	}
+
+	var lookupErr *agent.LookupError
+	if errors.As(err, &lookupErr) {
+		switch {
+		case errors.Is(err, agent.ErrRepoNotFound):
+			return nil, fmt.Errorf("%w: %q", rpc.ErrRepoNotFound, lookupErr.Query)
+		case errors.Is(err, agent.ErrAmbiguousRepo):
+			return nil, rpc.NewAmbiguousRepoError(lookupErr.Query, lookupErr.Matches)
+		}
+	}
+
+	return nil, err
 }
 
 func agentToRepoInfo(ag *agent.Agent) rpc.RepoInfo {
