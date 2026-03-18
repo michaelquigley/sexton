@@ -11,6 +11,8 @@ import (
 )
 
 type stubGit struct {
+	branch         string
+	branchErr      error
 	dirty          bool
 	dirtyErr       error
 	status         *git.Status
@@ -40,6 +42,7 @@ type stubGit struct {
 	onShortHEAD    func()
 }
 
+func (g *stubGit) Branch() (string, error) { return g.branch, g.branchErr }
 func (g *stubGit) IsDirty() (bool, error) {
 	if g.onIsDirty != nil {
 		g.onIsDirty()
@@ -61,14 +64,14 @@ func (g *stubGit) Commit(context.Context, string) error {
 	}
 	return g.commitErr
 }
-func (g *stubGit) Pull(context.Context) (bool, error) {
+func (g *stubGit) Pull(context.Context, string, string) (bool, error) {
 	g.pullCalls++
 	if g.onPull != nil {
 		g.onPull()
 	}
 	return false, g.pullErr
 }
-func (g *stubGit) Push(context.Context) error {
+func (g *stubGit) Push(context.Context, string, string) error {
 	g.pushCalls++
 	if g.onPush != nil {
 		g.onPush()
@@ -99,12 +102,17 @@ func newAgentForTest(g gitClient, alerter Alerter) *Agent {
 	if alerter == nil {
 		alerter = &recordingAlerter{}
 	}
+	if sg, ok := g.(*stubGit); ok && sg.branch == "" && sg.branchErr == nil {
+		sg.branch = "main"
+	}
 
 	return &Agent{
 		cfg: &config.ResolvedRepo{
 			Path:         "/tmp/test-repo",
 			Name:         "test-repo",
 			PollInterval: time.Second,
+			Branch:       "main",
+			Remote:       "origin",
 			Hooks:        &config.ResolvedHooks{},
 		},
 		git:     g,
@@ -166,6 +174,49 @@ func TestSyncRepeatedSameErrorDoesNotReAlert(t *testing.T) {
 
 	if len(alerts.events) != 1 {
 		t.Fatalf("expected one deduplicated alert, got %d", len(alerts.events))
+	}
+}
+
+func TestBranchReportsActualGitBranch(t *testing.T) {
+	a := newAgentForTest(&stubGit{branch: "feature/refactor"}, nil)
+
+	if got := a.Branch(); got != "feature/refactor" {
+		t.Fatalf("expected actual git branch, got %q", got)
+	}
+}
+
+func TestSyncFailsWhenCurrentBranchDoesNotMatchConfiguredBranch(t *testing.T) {
+	g := &stubGit{branch: "feature/refactor"}
+	alerts := &recordingAlerter{}
+	a := newAgentForTest(g, alerts)
+
+	a.sync()
+
+	if got := a.State(); got != Error {
+		t.Fatalf("expected error state, got %s", got)
+	}
+	if got := a.ErrorDetail(); got != `branch mismatch: configured branch "main", current branch "feature/refactor"` {
+		t.Fatalf("unexpected error detail: %q", got)
+	}
+	if g.stageCalls != 0 || g.pullCalls != 0 || g.pushCalls != 0 {
+		t.Fatalf("expected sync to stop before staging or network operations, got stage=%d pull=%d push=%d", g.stageCalls, g.pullCalls, g.pushCalls)
+	}
+	if len(alerts.events) != 1 {
+		t.Fatalf("expected one alert for branch mismatch, got %d", len(alerts.events))
+	}
+}
+
+func TestSyncFailsOnDetachedHead(t *testing.T) {
+	g := &stubGit{branch: "HEAD"}
+	a := newAgentForTest(g, nil)
+
+	a.sync()
+
+	if got := a.State(); got != Error {
+		t.Fatalf("expected error state, got %s", got)
+	}
+	if got := a.ErrorDetail(); got != `branch mismatch: configured branch "main", current branch "HEAD"` {
+		t.Fatalf("unexpected detached HEAD error detail: %q", got)
 	}
 }
 

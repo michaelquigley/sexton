@@ -47,7 +47,7 @@ func (g *Git) Commit(ctx context.Context, message string) error {
 	return err
 }
 
-func (g *Git) Pull(ctx context.Context) (pulled bool, err error) {
+func (g *Git) Pull(ctx context.Context, remote, branch string) (pulled bool, err error) {
 	dirty, err := g.IsDirty()
 	if err != nil {
 		return false, err
@@ -56,12 +56,12 @@ func (g *Git) Pull(ctx context.Context) (pulled bool, err error) {
 		return false, ErrDirtyWorkingTree
 	}
 
-	out, err := g.runCtx(ctx, "pull", "--rebase")
+	out, err := g.runCtx(ctx, "pull", "--rebase", remote, branch)
 	if err != nil {
-		if strings.Contains(out, "conflict") || strings.Contains(out, "CONFLICT") {
+		if isConflictOutput(out) {
 			return false, ErrConflict
 		}
-		if strings.Contains(out, "no remote") || strings.Contains(out, "No remote") {
+		if isNoRemoteOutput(out) {
 			return false, ErrNoRemote
 		}
 		return false, fmt.Errorf("%w: %s", ErrPullFailed, strings.TrimSpace(out))
@@ -73,10 +73,10 @@ func (g *Git) Pull(ctx context.Context) (pulled bool, err error) {
 	return pulled, nil
 }
 
-func (g *Git) Push(ctx context.Context) error {
-	out, err := g.runCtx(ctx, "push")
+func (g *Git) Push(ctx context.Context, remote, branch string) error {
+	out, err := g.runCtx(ctx, "push", remote, "HEAD:"+branch)
 	if err != nil {
-		if strings.Contains(out, "no remote") || strings.Contains(out, "No configured push destination") {
+		if isNoRemoteOutput(out) {
 			return ErrNoRemote
 		}
 		return fmt.Errorf("%w: %s", ErrPushFailed, strings.TrimSpace(out))
@@ -153,4 +153,16 @@ func (g *Git) runCtx(ctx context.Context, args ...string) (string, error) {
 		return stdout.String(), err
 	}
 	return stdout.String(), nil
+}
+
+func isConflictOutput(out string) bool {
+	return strings.Contains(out, "conflict") || strings.Contains(out, "CONFLICT")
+}
+
+func isNoRemoteOutput(out string) bool {
+	lower := strings.ToLower(out)
+	return strings.Contains(lower, "no remote") ||
+		strings.Contains(lower, "no configured push destination") ||
+		strings.Contains(lower, "no such remote") ||
+		strings.Contains(lower, "does not appear to be a git repository")
 }

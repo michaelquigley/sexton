@@ -105,8 +105,8 @@ hooks:
 | `llm.max_tokens` | global | `512` | Max tokens for diff context sent to LLM |
 | `name` | repo | basename of path | Display name for the repo |
 | `poll_interval` | global, repo | `30s` | Duration between poll cycles |
-| `branch` | global, repo | `main` | Branch to sync |
-| `remote` | global, repo | `origin` | Git remote name |
+| `branch` | global, repo | `main` | Branch Sexton requires the repo to be checked out on before syncing |
+| `remote` | global, repo | `origin` | Git remote Sexton explicitly pulls from and pushes to |
 | `commit_message_prompt` | global, repo | (built-in) | System prompt for LLM commit summarization |
 | `hooks.pre_commit` | global, repo | -- | Commands to run before staging and committing |
 | `hooks.post_commit` | global, repo | -- | Commands to run after a successful commit |
@@ -150,6 +150,8 @@ Runs in the foreground. Suitable for systemd or launchd.
 sexton status          # all repos
 sexton status grimoire # specific repo
 ```
+
+The `BRANCH` column shows the repo's actual current checkout. If it differs from the configured `branch`, the repo enters `error` with a mismatch message.
 
 ### Trigger immediate sync
 

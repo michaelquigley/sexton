@@ -36,12 +36,13 @@ type Agent struct {
 }
 
 type gitClient interface {
+	Branch() (string, error)
 	IsDirty() (bool, error)
 	Status() (*git.Status, error)
 	StageAll(ctx context.Context) error
 	Commit(ctx context.Context, message string) error
-	Pull(ctx context.Context) (bool, error)
-	Push(ctx context.Context) error
+	Pull(ctx context.Context, remote, branch string) (bool, error)
+	Push(ctx context.Context, remote, branch string) error
 	RebaseAbort(ctx context.Context) error
 	ShortHEAD() (string, error)
 	DiffStaged() (string, error)
@@ -91,7 +92,11 @@ func (a *Agent) Name() string {
 }
 
 func (a *Agent) Branch() string {
-	return a.cfg.Branch
+	branch, err := a.git.Branch()
+	if err != nil {
+		return "unknown"
+	}
+	return branch
 }
 
 func (a *Agent) LastSync() time.Time {
@@ -229,6 +234,14 @@ func (a *Agent) sync() {
 
 	ctx := context.Background()
 
+	if err := a.validateBranch(); err != nil {
+		a.setError("branch mismatch", err)
+		return
+	}
+	if a.pauseIfRequested() {
+		return
+	}
+
 	dirty, err := a.git.IsDirty()
 	if err != nil {
 		a.setError("failed to check status", err)
@@ -283,7 +296,7 @@ func (a *Agent) sync() {
 		}
 	}
 
-	_, err = a.git.Pull(ctx)
+	_, err = a.git.Pull(ctx, a.cfg.Remote, a.cfg.Branch)
 	if err != nil {
 		if errors.Is(err, git.ErrConflict) {
 			_ = a.git.RebaseAbort(ctx)
@@ -332,7 +345,7 @@ func (a *Agent) sync() {
 		return
 	}
 
-	if err := a.git.Push(ctx); err != nil {
+	if err := a.git.Push(ctx, a.cfg.Remote, a.cfg.Branch); err != nil {
 		if errors.Is(err, git.ErrNoRemote) {
 			if a.pauseIfRequested() {
 				return
@@ -434,6 +447,17 @@ func (a *Agent) completeSync(sha string) {
 	}
 	a.errorDetail = ""
 	a.mu.Unlock()
+}
+
+func (a *Agent) validateBranch() error {
+	current, err := a.git.Branch()
+	if err != nil {
+		return fmt.Errorf("failed to determine current branch: %w", err)
+	}
+	if current == a.cfg.Branch {
+		return nil
+	}
+	return fmt.Errorf("configured branch %q, current branch %q", a.cfg.Branch, current)
 }
 
 func (a *Agent) setError(message string, err error) {
