@@ -11,20 +11,26 @@ This allows you to create automatically synchronized repositories across multipl
 Sexton runs a per-repo sync loop on a fixed poll interval:
 
 ```mermaid
-flowchart LR
+flowchart TD
     poll[Poll] --> dirty{Dirty?}
-    dirty -- no --> sleep[Sleep]
-    dirty -- yes --> commit[Stage & Commit]
-    commit --> pull[Pull --rebase]
-    pull --> push[Push]
-    push --> sleep
+    dirty -- no --> pull
+    dirty -- yes --> pre_commit[pre_commit hooks]
+    pre_commit --> commit[Stage & Commit]
+    commit --> post_commit[post_commit hooks]
+    post_commit --> pull[Pull --rebase]
+    pull --> post_pull[post_pull hooks]
+    post_pull --> pre_push[pre_push hooks]
+    pre_push --> push[Push]
+    push --> post_sync[post_sync hooks]
+    post_sync --> sleep[Sleep]
     sleep --> poll
     pull -- conflict --> halted([Halted])
 ```
 
-- **Clean tree**: no-op, sleep until next poll
-- **Dirty tree**: stage all, generate a commit message via LLM, commit, pull --rebase, push
+- **Clean tree**: pull, run post_pull/pre_push/post_sync hooks, push, sleep
+- **Dirty tree**: run pre_commit hooks, stage all, generate a commit message via LLM, commit, run post_commit hooks, pull --rebase, run post_pull/pre_push hooks, push, run post_sync hooks
 - **Conflict**: abort the rebase, halt the repo, alert the user
+- **Hook failure**: halt the repo, alert the user (same as conflict)
 
 Sexton never silently loses data. On any unrecoverable error it halts and waits for you.
 
@@ -63,6 +69,10 @@ alerts:
 
 repos:
   - path: ~/grimoire
+    hooks:
+      post_pull:
+        - command: "lore sync"
+          timeout: 60s
   - path: ~/datasets/research
     name: research
     poll_interval: 60s
@@ -78,6 +88,11 @@ branch: main
 commit_message_prompt: |
   Summarize this diff as a commit message for a personal knowledge base.
   Be brief. Use present tense.
+hooks:
+  post_pull:
+    - command: "lore sync"
+      env:
+        LORE_VERBOSE: "true"
 ```
 
 ### Config fields
@@ -93,10 +108,31 @@ commit_message_prompt: |
 | `branch` | global, repo | `main` | Branch to sync |
 | `remote` | global, repo | `origin` | Git remote name |
 | `commit_message_prompt` | global, repo | (built-in) | System prompt for LLM commit summarization |
+| `hooks.pre_commit` | global, repo | -- | Commands to run before staging and committing |
+| `hooks.post_commit` | global, repo | -- | Commands to run after a successful commit |
+| `hooks.post_pull` | global, repo | -- | Commands to run after a successful pull |
+| `hooks.pre_push` | global, repo | -- | Commands to run before pushing |
+| `hooks.post_sync` | global, repo | -- | Commands to run after a successful sync cycle |
+
+Each hook entry has a `command` (shell string) and optional `timeout` (default `30s`), `dir` (working directory, defaults to repo root), and `env` (map of additional environment variables).
 
 ### Cascade order
 
 Repo-local config > global repo entry > global defaults > built-in defaults.
+
+For hooks, the cascade is per-phase replacement -- if `.sexton.yaml` defines `post_pull` hooks, they replace any `post_pull` hooks from the global config entirely (not concatenated).
+
+### Lifecycle hooks
+
+Hooks run shell commands at phase boundaries in the sync loop. Each hook runs with the repo root as working directory (override with `dir`) and receives `SEXTON_REPO_PATH`, `SEXTON_REPO_NAME`, and `SEXTON_HOOK` environment variables plus any custom variables from `env`. Multiple hooks per phase run sequentially in declaration order. A hook that exits non-zero halts the agent.
+
+| Hook | When it fires |
+|---|---|
+| `pre_commit` | After dirty check, before staging (dirty cycles only) |
+| `post_commit` | After successful commit (dirty cycles only) |
+| `post_pull` | After successful pull (every cycle) |
+| `pre_push` | Before push |
+| `post_sync` | After entire sync cycle succeeds (every cycle) |
 
 ## Usage
 

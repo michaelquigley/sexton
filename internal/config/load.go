@@ -2,6 +2,7 @@ package config
 
 import (
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -62,6 +63,11 @@ func Resolve(entry *RepoEntry, defaults *RepoDefaults, local *RepoLocalConfig) (
 	path := ExpandPath(entry.Path)
 	name := coalesce(local.Name, entry.Name, filepath.Base(path))
 
+	hooks, err := resolveHooks(defaults.Hooks, entry.Hooks, local.Hooks)
+	if err != nil {
+		return nil, err
+	}
+
 	return &ResolvedRepo{
 		Path:                path,
 		Name:                name,
@@ -69,7 +75,77 @@ func Resolve(entry *RepoEntry, defaults *RepoDefaults, local *RepoLocalConfig) (
 		Branch:              coalesce(local.Branch, entry.Branch, defaults.Branch, "main"),
 		Remote:              coalesce(local.Remote, entry.Remote, defaults.Remote, "origin"),
 		CommitMessagePrompt: coalesce(local.CommitMessagePrompt, entry.CommitMessagePrompt, defaults.CommitMessagePrompt, DefaultCommitMessagePrompt),
+		Hooks:               hooks,
 	}, nil
+}
+
+const defaultHookTimeout = 30 * time.Second
+
+func resolveHooks(defaults, entry, local *HooksConfig) (*ResolvedHooks, error) {
+	resolved := &ResolvedHooks{}
+
+	resolvePhase := func(localPhase, entryPhase, defaultsPhase []*HookEntry) ([]*ResolvedHook, error) {
+		var entries []*HookEntry
+		switch {
+		case len(localPhase) > 0:
+			entries = localPhase
+		case len(entryPhase) > 0:
+			entries = entryPhase
+		case len(defaultsPhase) > 0:
+			entries = defaultsPhase
+		default:
+			return nil, nil
+		}
+
+		hooks := make([]*ResolvedHook, len(entries))
+		for i, e := range entries {
+			timeout := defaultHookTimeout
+			if e.Timeout != "" {
+				var err error
+				timeout, err = time.ParseDuration(e.Timeout)
+				if err != nil {
+					return nil, fmt.Errorf("invalid hook timeout %q: %w", e.Timeout, err)
+				}
+			}
+			hooks[i] = &ResolvedHook{
+				Command: e.Command,
+				Timeout: timeout,
+				Dir:     ExpandPath(e.Dir),
+				Env:     e.Env,
+			}
+		}
+		return hooks, nil
+	}
+
+	var localHooks, entryHooks, defaultHooks HooksConfig
+	if local != nil {
+		localHooks = *local
+	}
+	if entry != nil {
+		entryHooks = *entry
+	}
+	if defaults != nil {
+		defaultHooks = *defaults
+	}
+
+	var err error
+	if resolved.PreCommit, err = resolvePhase(localHooks.PreCommit, entryHooks.PreCommit, defaultHooks.PreCommit); err != nil {
+		return nil, err
+	}
+	if resolved.PostCommit, err = resolvePhase(localHooks.PostCommit, entryHooks.PostCommit, defaultHooks.PostCommit); err != nil {
+		return nil, err
+	}
+	if resolved.PostPull, err = resolvePhase(localHooks.PostPull, entryHooks.PostPull, defaultHooks.PostPull); err != nil {
+		return nil, err
+	}
+	if resolved.PrePush, err = resolvePhase(localHooks.PrePush, entryHooks.PrePush, defaultHooks.PrePush); err != nil {
+		return nil, err
+	}
+	if resolved.PostSync, err = resolvePhase(localHooks.PostSync, entryHooks.PostSync, defaultHooks.PostSync); err != nil {
+		return nil, err
+	}
+
+	return resolved, nil
 }
 
 func GlobalConfigPath() string {

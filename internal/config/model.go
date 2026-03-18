@@ -3,45 +3,78 @@ package config
 import "time"
 
 type GlobalConfig struct {
-	LLM      *LLMConfig    `yaml:"llm"`
-	Defaults *RepoDefaults `yaml:"defaults"`
-	Alerts   []*AlertConfig `yaml:"alerts"`
-	Repos    []*RepoEntry  `yaml:"repos"`
+	LLM      *LLMConfig
+	Defaults *RepoDefaults
+	Alerts   []*AlertConfig
+	Repos    []*RepoEntry
+}
+
+type HookEntry struct {
+	Command string
+	Timeout string
+	Dir     string
+	Env     map[string]string
+}
+
+type HooksConfig struct {
+	PreCommit  []*HookEntry
+	PostCommit []*HookEntry
+	PostPull   []*HookEntry
+	PrePush    []*HookEntry
+	PostSync   []*HookEntry
 }
 
 type RepoDefaults struct {
-	PollInterval       string `yaml:"poll_interval"`
-	Branch             string `yaml:"branch"`
-	Remote             string `yaml:"remote"`
-	CommitMessagePrompt string `yaml:"commit_message_prompt"`
+	PollInterval        string
+	Branch              string
+	Remote              string
+	CommitMessagePrompt string
+	Hooks               *HooksConfig
 }
 
 type RepoEntry struct {
-	Path                string `yaml:"path"`
-	Name                string `yaml:"name"`
-	PollInterval        string `yaml:"poll_interval"`
-	Branch              string `yaml:"branch"`
-	Remote              string `yaml:"remote"`
-	CommitMessagePrompt string `yaml:"commit_message_prompt"`
+	Path                string
+	Name                string
+	PollInterval        string
+	Branch              string
+	Remote              string
+	CommitMessagePrompt string
+	Hooks               *HooksConfig
 }
 
 type LLMConfig struct {
-	Endpoint  string `yaml:"endpoint"`
-	Model     string `yaml:"model"`
-	APIKeyEnv string `yaml:"api_key_env"`
-	MaxTokens int    `yaml:"max_tokens"`
+	Endpoint  string
+	Model     string
+	APIKeyEnv string
+	MaxTokens int
 }
 
 type AlertConfig struct {
-	Type string `yaml:"type"`
+	Type string
 }
 
 type RepoLocalConfig struct {
-	Name                string `yaml:"name"`
-	PollInterval        string `yaml:"poll_interval"`
-	Branch              string `yaml:"branch"`
-	Remote              string `yaml:"remote"`
-	CommitMessagePrompt string `yaml:"commit_message_prompt"`
+	Name                string
+	PollInterval        string
+	Branch              string
+	Remote              string
+	CommitMessagePrompt string
+	Hooks               *HooksConfig
+}
+
+type ResolvedHook struct {
+	Command string
+	Timeout time.Duration
+	Dir     string
+	Env     map[string]string
+}
+
+type ResolvedHooks struct {
+	PreCommit  []*ResolvedHook
+	PostCommit []*ResolvedHook
+	PostPull   []*ResolvedHook
+	PrePush    []*ResolvedHook
+	PostSync   []*ResolvedHook
 }
 
 type ResolvedRepo struct {
@@ -51,6 +84,7 @@ type ResolvedRepo struct {
 	Branch              string
 	Remote              string
 	CommitMessagePrompt string
+	Hooks               *ResolvedHooks
 }
 
 const DefaultCommitMessagePrompt = "Summarize the following git diff as a concise commit message. Use imperative mood. Be specific about what changed."

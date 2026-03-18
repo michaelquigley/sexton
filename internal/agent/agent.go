@@ -228,6 +228,11 @@ func (a *Agent) sync() {
 	}
 
 	if dirty {
+		if err := a.runHooks(ctx, "pre_commit", a.cfg.Hooks.PreCommit); err != nil {
+			a.halt("pre_commit hook failed", err)
+			return
+		}
+
 		status, _ := a.git.Status()
 
 		if err := a.git.StageAll(ctx); err != nil {
@@ -244,6 +249,11 @@ func (a *Agent) sync() {
 				a.halt("commit failed", err)
 				return
 			}
+		}
+
+		if err := a.runHooks(ctx, "post_commit", a.cfg.Hooks.PostCommit); err != nil {
+			a.halt("post_commit hook failed", err)
+			return
 		}
 	}
 
@@ -273,6 +283,16 @@ func (a *Agent) sync() {
 		return
 	}
 
+	if err := a.runHooks(ctx, "post_pull", a.cfg.Hooks.PostPull); err != nil {
+		a.halt("post_pull hook failed", err)
+		return
+	}
+
+	if err := a.runHooks(ctx, "pre_push", a.cfg.Hooks.PrePush); err != nil {
+		a.halt("pre_push hook failed", err)
+		return
+	}
+
 	if err := a.git.Push(ctx); err != nil {
 		if errors.Is(err, git.ErrNoRemote) {
 			a.mu.Lock()
@@ -282,6 +302,11 @@ func (a *Agent) sync() {
 			return
 		}
 		a.halt("push failed", err)
+		return
+	}
+
+	if err := a.runHooks(ctx, "post_sync", a.cfg.Hooks.PostSync); err != nil {
+		a.halt("post_sync hook failed", err)
 		return
 	}
 
