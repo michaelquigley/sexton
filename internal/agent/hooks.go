@@ -18,7 +18,7 @@ func (a *Agent) runHooks(ctx context.Context, phase string, hooks []*config.Reso
 	}
 
 	for i, hook := range hooks {
-		dl.Infof("[%s] running hook %d/%d: %s", phase, i+1, len(hooks), hook.Command)
+		dl.Debugf("[%s] running hook %d/%d: %s", phase, i+1, len(hooks), hook.Command)
 
 		hookCtx, cancel := context.WithTimeout(ctx, hook.Timeout)
 
@@ -69,7 +69,7 @@ func (a *Agent) runHooks(ctx context.Context, phase string, hooks []*config.Reso
 				phase, hook.Command, exitCode, stderr.String(), err)
 		}
 
-		dl.Infof("[%s] hook %d/%d completed successfully (in %v)", phase, i+1, len(hooks), time.Since(start))
+		dl.Debugf("[%s] hook %d/%d completed successfully (in %v)", phase, i+1, len(hooks), time.Since(start))
 	}
 
 	return nil
