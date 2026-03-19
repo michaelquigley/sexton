@@ -19,6 +19,13 @@ jobs:
 
       - run: go test -v -race -coverprofile=coverage.out ./...
 
+      - run: go build -o sexton ./cmd/sexton
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: sexton-linux-amd64
+          path: sexton
+
       - uses: codecov/codecov-action@v5
         with:
           files: coverage.out
