@@ -96,9 +96,10 @@ func (s *Status) parseBranchLine(line string) {
 		for _, m := range abMatches {
 			if len(m) >= 3 {
 				count, _ := strconv.Atoi(m[2])
-				if m[1] == "ahead" {
+				switch m[1] {
+				case "ahead":
 					s.Ahead = count
-				} else if m[1] == "behind" {
+				case "behind":
 					s.Behind = count
 				}
 			}

@@ -22,7 +22,7 @@ func runResume(_ *cobra.Command, args []string) error {
 	if err != nil {
 		return fmt.Errorf("failed to connect to agent: %w", err)
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 
 	resp, err := client.Resume(context.Background(), &sextonv1.ResumeRequest{Repo: args[0]})
 	if err != nil {

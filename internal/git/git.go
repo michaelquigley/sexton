@@ -75,8 +75,6 @@ func (g *Git) Pull(ctx context.Context, remote, branch string) (pulled bool, err
 		return false, fmt.Errorf("%w: %s", ErrPullFailed, strings.TrimSpace(out))
 	}
 
-	pulled = !strings.Contains(out, "Already up to date") && !strings.Contains(out, "Current branch") || strings.Contains(out, "rewinding")
-	// simpler: if "Already up to date" not present, something happened
 	pulled = !strings.Contains(out, "Already up to date")
 	return pulled, nil
 }

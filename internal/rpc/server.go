@@ -79,7 +79,7 @@ func (s *Server) checkStaleSocket() error {
 	conn, err := net.Dial("unix", s.socketPath)
 	if err == nil {
 		// connection succeeded — another agent is running
-		conn.Close()
+		_ = conn.Close()
 		return fmt.Errorf("another agent is already running (socket '%s' is active)", s.socketPath)
 	}
 

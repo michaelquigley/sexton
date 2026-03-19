@@ -25,7 +25,7 @@ func runStatus(_ *cobra.Command, args []string) error {
 	if err != nil {
 		return fmt.Errorf("failed to connect to agent: %w", err)
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 
 	req := &sextonv1.StatusRequest{}
 	if len(args) > 0 {
@@ -43,7 +43,7 @@ func runStatus(_ *cobra.Command, args []string) error {
 	}
 
 	w := tabwriter.NewWriter(os.Stdout, 0, 4, 2, ' ', 0)
-	fmt.Fprintln(w, "NAME\tSTATE\tBRANCH\tLAST SYNC\tLAST COMMIT\tERROR\tSNOOZE")
+	_, _ = fmt.Fprintln(w, "NAME\tSTATE\tBRANCH\tLAST SYNC\tLAST COMMIT\tERROR\tSNOOZE")
 	for _, r := range resp.GetRepos() {
 		lastSync := formatLastSync(r.GetLastSync(), time.Now())
 		lastCommit := r.GetLastCommit()
@@ -58,7 +58,7 @@ func runStatus(_ *cobra.Command, args []string) error {
 		if snooze == "" {
 			snooze = "-"
 		}
-		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
+		_, _ = fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
 			r.GetName(), r.GetState(), r.GetBranch(),
 			lastSync, lastCommit, errStr, snooze)
 	}
