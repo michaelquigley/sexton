@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"os/exec"
+	"syscall"
 	"time"
 
 	"github.com/michaelquigley/df/dl"
@@ -23,6 +24,11 @@ func (a *Agent) runHooks(ctx context.Context, phase string, hooks []*config.Reso
 		hookCtx, cancel := context.WithTimeout(ctx, hook.Timeout)
 
 		cmd := exec.CommandContext(hookCtx, "sh", "-c", hook.Command)
+		cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+		cmd.Cancel = func() error {
+			return syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
+		}
+		cmd.WaitDelay = 2 * time.Second
 		if hook.Dir != "" {
 			cmd.Dir = hook.Dir
 		} else {
