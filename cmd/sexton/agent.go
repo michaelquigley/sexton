@@ -118,6 +118,7 @@ func agentToRepoInfo(ag *agent.Agent) rpc.RepoInfo {
 		Branch:          ag.Branch(),
 		LastSync:        ag.LastSync(),
 		LastCommit:      ag.LastCommit(),
+		LastChange:      ag.LastChange(),
 		SnoozeRemaining: ag.SnoozeRemaining(),
 	}
 	if detail := ag.ErrorDetail(); detail != "" {

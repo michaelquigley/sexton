@@ -36,6 +36,7 @@ type RepoInfo struct {
 	Branch          string
 	LastSync        time.Time
 	LastCommit      string
+	LastChange      time.Time
 	Error           string
 	SnoozeRemaining time.Duration
 }

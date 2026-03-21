@@ -35,6 +35,8 @@ type stubGit struct {
 	shortHEADCalls int
 	shortHEAD      string
 	shortHEADErr   error
+	commitTime     time.Time
+	commitTimeErr  error
 	diffStaged     string
 	diffStagedErr  error
 	diffStat       string
@@ -90,6 +92,9 @@ func (g *stubGit) ShortHEAD(ctx context.Context) (string, error) {
 		g.onShortHEAD(ctx)
 	}
 	return g.shortHEAD, g.shortHEADErr
+}
+func (g *stubGit) CommitTime(context.Context) (time.Time, error) {
+	return g.commitTime, g.commitTimeErr
 }
 func (g *stubGit) DiffStaged(context.Context) (string, error) { return g.diffStaged, g.diffStagedErr }
 func (g *stubGit) DiffStat(context.Context) (string, error)   { return g.diffStat, g.diffStatErr }

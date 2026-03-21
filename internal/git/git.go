@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os/exec"
 	"strings"
+	"time"
 )
 
 type Git struct {
@@ -129,6 +130,15 @@ func (g *Git) ShortHEAD(ctx context.Context) (string, error) {
 		return "", err
 	}
 	return strings.TrimSpace(out), nil
+}
+
+// CommitTime returns the author timestamp of HEAD.
+func (g *Git) CommitTime(ctx context.Context) (time.Time, error) {
+	out, err := g.runCtx(ctx, "log", "-1", "--format=%aI")
+	if err != nil {
+		return time.Time{}, err
+	}
+	return time.Parse(time.RFC3339, strings.TrimSpace(out))
 }
 
 func (g *Git) run(args ...string) (string, error) {

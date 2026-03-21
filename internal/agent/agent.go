@@ -36,6 +36,7 @@ type Agent struct {
 
 	lastSync   time.Time
 	lastCommit string
+	lastChange time.Time
 }
 
 type gitClient interface {
@@ -48,6 +49,7 @@ type gitClient interface {
 	Push(ctx context.Context, remote, branch string) error
 	RebaseAbort(ctx context.Context) error
 	ShortHEAD(ctx context.Context) (string, error)
+	CommitTime(ctx context.Context) (time.Time, error)
 	DiffStaged(ctx context.Context) (string, error)
 	DiffStat(ctx context.Context) (string, error)
 }
@@ -118,6 +120,12 @@ func (a *Agent) LastCommit() string {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	return a.lastCommit
+}
+
+func (a *Agent) LastChange() time.Time {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return a.lastChange
 }
 
 func (a *Agent) ErrorDetail() string {
@@ -357,7 +365,7 @@ func (a *Agent) sync() {
 				return
 			}
 			// no remote configured — commit-only mode
-			a.completeSync("")
+			a.completeSync("", time.Time{})
 			return
 		}
 		if errors.Is(err, git.ErrDirtyWorkingTree) {
@@ -408,7 +416,7 @@ func (a *Agent) sync() {
 			if a.shouldAbortSync(ctx) {
 				return
 			}
-			a.completeSync("")
+			a.completeSync("", time.Time{})
 			return
 		}
 		a.setError("push failed", err)
@@ -441,7 +449,19 @@ func (a *Agent) sync() {
 		return
 	}
 
-	a.completeSync(sha)
+	commitTime, err := a.git.CommitTime(ctx)
+	if err != nil {
+		if a.syncCanceled(ctx, err) {
+			return
+		}
+		a.setError("failed to read commit time", err)
+		return
+	}
+	if a.shouldAbortSync(ctx) {
+		return
+	}
+
+	a.completeSync(sha, commitTime)
 
 	dl.Debugf("sync complete for '%s'", a.cfg.Name)
 
@@ -513,12 +533,15 @@ func (a *Agent) shouldAbortSync(ctx context.Context) bool {
 	return a.pauseIfRequested()
 }
 
-func (a *Agent) completeSync(sha string) {
+func (a *Agent) completeSync(sha string, commitTime time.Time) {
 	a.mu.Lock()
 	a.state = Watching
 	a.lastSync = time.Now()
 	if sha != "" {
 		a.lastCommit = sha
+	}
+	if !commitTime.IsZero() {
+		a.lastChange = commitTime
 	}
 	a.errorDetail = ""
 	a.mu.Unlock()

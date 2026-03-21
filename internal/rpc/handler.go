@@ -33,6 +33,9 @@ func (h *handler) Status(_ context.Context, req *sextonv1.StatusRequest) (*sexto
 		if !info.LastSync.IsZero() {
 			rs.LastSync = info.LastSync.Format(time.RFC3339)
 		}
+		if !info.LastChange.IsZero() {
+			rs.LastChange = info.LastChange.Format(time.RFC3339)
+		}
 		if info.Error != "" {
 			rs.Error = info.Error
 		}

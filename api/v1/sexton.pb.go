@@ -75,6 +75,7 @@ type RepoStatus struct {
 	Error           string                 `protobuf:"bytes,6,opt,name=error,proto3" json:"error,omitempty"`                                            // populated when errored
 	SnoozeRemaining string                 `protobuf:"bytes,7,opt,name=snooze_remaining,json=snoozeRemaining,proto3" json:"snooze_remaining,omitempty"` // populated when snoozed
 	Name            string                 `protobuf:"bytes,8,opt,name=name,proto3" json:"name,omitempty"`
+	LastChange      string                 `protobuf:"bytes,9,opt,name=last_change,json=lastChange,proto3" json:"last_change,omitempty"` // RFC3339 timestamp
 	unknownFields   protoimpl.UnknownFields
 	sizeCache       protoimpl.SizeCache
 }
@@ -161,6 +162,13 @@ func (x *RepoStatus) GetSnoozeRemaining() string {
 func (x *RepoStatus) GetName() string {
 	if x != nil {
 		return x.Name
+	}
+	return ""
+}
+
+func (x *RepoStatus) GetLastChange() string {
+	if x != nil {
+		return x.LastChange
 	}
 	return ""
 }
@@ -487,7 +495,7 @@ const file_api_v1_sexton_proto_rawDesc = "" +
 	"\n" +
 	"\x13api/v1/sexton.proto\x12\tsexton.v1\"#\n" +
 	"\rStatusRequest\x12\x12\n" +
-	"\x04repo\x18\x01 \x01(\tR\x04repo\"\xe1\x01\n" +
+	"\x04repo\x18\x01 \x01(\tR\x04repo\"\x82\x02\n" +
 	"\n" +
 	"RepoStatus\x12\x12\n" +
 	"\x04path\x18\x01 \x01(\tR\x04path\x12\x14\n" +
@@ -498,7 +506,9 @@ const file_api_v1_sexton_proto_rawDesc = "" +
 	"lastCommit\x12\x14\n" +
 	"\x05error\x18\x06 \x01(\tR\x05error\x12)\n" +
 	"\x10snooze_remaining\x18\a \x01(\tR\x0fsnoozeRemaining\x12\x12\n" +
-	"\x04name\x18\b \x01(\tR\x04name\"=\n" +
+	"\x04name\x18\b \x01(\tR\x04name\x12\x1f\n" +
+	"\vlast_change\x18\t \x01(\tR\n" +
+	"lastChange\"=\n" +
 	"\x0eStatusResponse\x12+\n" +
 	"\x05repos\x18\x01 \x03(\v2\x15.sexton.v1.RepoStatusR\x05repos\"!\n" +
 	"\vSyncRequest\x12\x12\n" +
