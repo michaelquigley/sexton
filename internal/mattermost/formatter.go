@@ -23,7 +23,27 @@ func FormatAlert(event agent.AlertEvent) string {
 	if event.Error != nil {
 		fmt.Fprintf(&b, ": %v", event.Error)
 	}
+	if event.Files != nil {
+		formatFileList(&b, "modified", event.Files.Modified)
+		formatFileList(&b, "added", event.Files.Added)
+		formatFileList(&b, "deleted", event.Files.Deleted)
+	}
 	return b.String()
+}
+
+func formatFileList(b *strings.Builder, label string, files []string) {
+	if len(files) == 0 {
+		return
+	}
+	b.WriteString("\n- ")
+	b.WriteString(label)
+	b.WriteString(": ")
+	for i, f := range files {
+		if i > 0 {
+			b.WriteString(", ")
+		}
+		fmt.Fprintf(b, "`%s`", f)
+	}
 }
 
 // FormatStatus formats a list of repo statuses as a markdown table.

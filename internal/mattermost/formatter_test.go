@@ -27,6 +27,53 @@ func TestFormatAlertInfo(t *testing.T) {
 	}
 }
 
+func TestFormatAlertWithFiles(t *testing.T) {
+	event := agent.AlertEvent{
+		Severity: "info",
+		RepoPath: "my-notes",
+		Message:  "sync complete (abc123)",
+		Files: &agent.AlertFiles{
+			Modified: []string{"notes/todo.md", "notes/ideas.md"},
+			Added:    []string{"notes/new.md"},
+			Deleted:  []string{"notes/old.md"},
+		},
+	}
+	got := FormatAlert(event)
+	if !strings.Contains(got, "`notes/todo.md`") {
+		t.Errorf("expected modified file, got %q", got)
+	}
+	if !strings.Contains(got, "- modified:") {
+		t.Errorf("expected modified label, got %q", got)
+	}
+	if !strings.Contains(got, "- added: `notes/new.md`") {
+		t.Errorf("expected added file, got %q", got)
+	}
+	if !strings.Contains(got, "- deleted: `notes/old.md`") {
+		t.Errorf("expected deleted file, got %q", got)
+	}
+}
+
+func TestFormatAlertWithFilesPartial(t *testing.T) {
+	event := agent.AlertEvent{
+		Severity: "info",
+		RepoPath: "my-notes",
+		Message:  "sync complete (abc123)",
+		Files: &agent.AlertFiles{
+			Modified: []string{"notes/todo.md"},
+		},
+	}
+	got := FormatAlert(event)
+	if !strings.Contains(got, "- modified:") {
+		t.Errorf("expected modified label, got %q", got)
+	}
+	if strings.Contains(got, "- added:") {
+		t.Errorf("should not contain added section, got %q", got)
+	}
+	if strings.Contains(got, "- deleted:") {
+		t.Errorf("should not contain deleted section, got %q", got)
+	}
+}
+
 func TestFormatAlertError(t *testing.T) {
 	event := agent.AlertEvent{
 		Severity: "error",

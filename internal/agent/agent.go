@@ -269,6 +269,8 @@ func (a *Agent) sync() {
 		return
 	}
 
+	var status *git.Status
+
 	dirty, err := a.git.IsDirty(ctx)
 	if err != nil {
 		if a.syncCanceled(ctx, err) {
@@ -293,7 +295,7 @@ func (a *Agent) sync() {
 			return
 		}
 
-		status, err := a.git.Status(ctx)
+		status, err = a.git.Status(ctx)
 		if err != nil {
 			if a.syncCanceled(ctx, err) {
 				return
@@ -475,7 +477,7 @@ func (a *Agent) sync() {
 		a.alert("info", "recovered from error", nil)
 	}
 	if dirty {
-		a.alert("info", "sync complete ("+sha+")", nil)
+		a.alertWithFiles("info", "sync complete ("+sha+")", status)
 	}
 }
 
@@ -598,6 +600,24 @@ func (a *Agent) alert(severity, message string, err error) {
 		Message:   message,
 		Error:     err,
 		Timestamp: time.Now(),
+	})
+}
+
+func (a *Agent) alertWithFiles(severity, message string, status *git.Status) {
+	var files *AlertFiles
+	if status != nil {
+		files = &AlertFiles{
+			Modified: status.Modified,
+			Added:    append(status.Added, status.Untracked...),
+			Deleted:  status.Deleted,
+		}
+	}
+	_ = a.alerter.Alert(context.Background(), AlertEvent{
+		Severity:  severity,
+		RepoPath:  a.cfg.Name,
+		Message:   message,
+		Timestamp: time.Now(),
+		Files:     files,
 	})
 }
 

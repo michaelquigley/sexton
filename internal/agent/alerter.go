@@ -8,12 +8,19 @@ import (
 	"github.com/michaelquigley/df/dl"
 )
 
+type AlertFiles struct {
+	Modified []string
+	Added    []string
+	Deleted  []string
+}
+
 type AlertEvent struct {
 	Severity  string
 	RepoPath  string
 	Message   string
 	Error     error
 	Timestamp time.Time
+	Files     *AlertFiles
 }
 
 type Alerter interface {
@@ -33,7 +40,13 @@ func (a *LogAlerter) Alert(_ context.Context, event AlertEvent) error {
 	case "warning":
 		dl.Warnf("[%s] %s", event.RepoPath, event.Message)
 	default:
-		dl.Infof("[%s] %s", event.RepoPath, event.Message)
+		if event.Files != nil {
+			dl.Infof("[%s] %s (%d modified, %d added, %d deleted)",
+				event.RepoPath, event.Message,
+				len(event.Files.Modified), len(event.Files.Added), len(event.Files.Deleted))
+		} else {
+			dl.Infof("[%s] %s", event.RepoPath, event.Message)
+		}
 	}
 	return nil
 }

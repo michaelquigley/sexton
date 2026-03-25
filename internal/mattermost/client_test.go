@@ -87,9 +87,9 @@ func TestPostMessage(t *testing.T) {
 		if r.Header.Get("Authorization") != "Bearer test-token" {
 			t.Errorf("unexpected auth header: %s", r.Header.Get("Authorization"))
 		}
-		json.NewDecoder(r.Body).Decode(&gotBody)
+		_ = json.NewDecoder(r.Body).Decode(&gotBody)
 		w.WriteHeader(http.StatusCreated)
-		w.Write([]byte(`{}`))
+		_, _ = w.Write([]byte(`{}`))
 	}))
 	defer srv.Close()
 
@@ -115,7 +115,7 @@ func TestPostMessagePreservesBasePath(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		gotPath = r.URL.Path
 		w.WriteHeader(http.StatusCreated)
-		w.Write([]byte(`{}`))
+		_, _ = w.Write([]byte(`{}`))
 	}))
 	defer srv.Close()
 
@@ -159,7 +159,7 @@ func TestSelfMessageSuppression(t *testing.T) {
 
 func TestAllowedUserFiltering(t *testing.T) {
 	userSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		json.NewEncoder(w).Encode(map[string]string{
+		_ = json.NewEncoder(w).Encode(map[string]string{
 			"id":       "user456",
 			"username": "stranger",
 		})
@@ -210,7 +210,7 @@ func TestAllowedUserEmpty(t *testing.T) {
 	postSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		posted = true
 		w.WriteHeader(http.StatusCreated)
-		w.Write([]byte(`{}`))
+		_, _ = w.Write([]byte(`{}`))
 	}))
 	defer postSrv.Close()
 
@@ -255,7 +255,7 @@ func TestUsernameCaching(t *testing.T) {
 	apiCalls := 0
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		apiCalls++
-		json.NewEncoder(w).Encode(map[string]string{
+		_ = json.NewEncoder(w).Encode(map[string]string{
 			"id":       "user1",
 			"username": "michael",
 		})
@@ -398,7 +398,7 @@ func TestStartAuthSuccess(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/api/v4/users/me":
-			json.NewEncoder(w).Encode(map[string]string{
+			_ = json.NewEncoder(w).Encode(map[string]string{
 				"id":       "bot123",
 				"username": "sexton-test",
 			})
@@ -432,7 +432,7 @@ func TestStartAuthSuccess(t *testing.T) {
 func TestStartAuthFailure(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusUnauthorized)
-		w.Write([]byte(`{"message": "invalid token"}`))
+		_, _ = w.Write([]byte(`{"message": "invalid token"}`))
 	}))
 	defer srv.Close()
 
