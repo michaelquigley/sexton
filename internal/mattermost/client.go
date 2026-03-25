@@ -93,7 +93,7 @@ func (c *Client) Stop() {
 	close(c.stopCh)
 	c.mu.Lock()
 	if c.ws != nil {
-		c.ws.Close()
+		_ = c.ws.Close()
 	}
 	c.mu.Unlock()
 	<-c.doneCh
@@ -122,7 +122,7 @@ func (c *Client) PostMessage(channelID, text string) error {
 	if err != nil {
 		return err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode >= 300 {
 		respBody, _ := io.ReadAll(resp.Body)
 		return fmt.Errorf("post message failed (status %d): %s", resp.StatusCode, string(respBody))
@@ -394,7 +394,7 @@ func (c *Client) apiGet(path string) (map[string]interface{}, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode >= 300 {
 		body, _ := io.ReadAll(resp.Body)
 		return nil, fmt.Errorf("mattermost api %s failed (status %d): %s", path, resp.StatusCode, string(body))
