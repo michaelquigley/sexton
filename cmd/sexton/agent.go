@@ -3,6 +3,8 @@ package main
 import (
 	"errors"
 	"fmt"
+	"slices"
+	"strings"
 	"time"
 
 	"github.com/michaelquigley/df/da"
@@ -14,6 +16,13 @@ import (
 )
 
 var agentConfigPath string
+var newMattermostClient = mattermost.NewClient
+var startMattermostClient = func(c *mattermost.Client, handler mattermost.CommandHandler) error {
+	return c.Start(handler)
+}
+var stopMattermostClient = func(c *mattermost.Client) {
+	c.Stop()
+}
 
 var agentCmd = &cobra.Command{
 	Use:   "agent",
@@ -148,6 +157,8 @@ func buildAlerter(alerts []*config.AlertConfig, adapter *containerAdapter) (agen
 
 	var alerters []agent.Alerter
 	var mmClients []*mattermost.Client
+	mmClientsByIdentity := map[mattermostIngressIdentity]*mattermost.Client{}
+	mmIngressByIdentity := map[mattermostIngressIdentity]string{}
 
 	for _, ac := range alerts {
 		switch ac.Type {
@@ -155,20 +166,35 @@ func buildAlerter(alerts []*config.AlertConfig, adapter *containerAdapter) (agen
 			alerters = append(alerters, &agent.LogAlerter{})
 		case "mattermost":
 			if ac.Mattermost == nil {
+				stopMattermostClients(mmClients)
 				return nil, nil, fmt.Errorf("alert type 'mattermost' requires a mattermost config block")
 			}
-			mc := mattermost.NewClient(ac.Mattermost)
-			ma := &mattermostAdapter{ca: adapter}
-			if err := mc.Start(ma); err != nil {
-				// stop any already-started clients
-				for _, c := range mmClients {
-					c.Stop()
-				}
-				return nil, nil, fmt.Errorf("mattermost client start failed: %w", err)
+			if strings.TrimSpace(ac.Mattermost.ChannelID) == "" {
+				stopMattermostClients(mmClients)
+				return nil, nil, fmt.Errorf("alert type 'mattermost' requires a non-empty channel_id")
 			}
-			mmClients = append(mmClients, mc)
+			identity := mattermostIdentity(ac.Mattermost)
+			ingress := mattermostIngressSignature(ac.Mattermost)
+			mc, ok := mmClientsByIdentity[identity]
+			if ok {
+				if mmIngressByIdentity[identity] != ingress {
+					stopMattermostClients(mmClients)
+					return nil, nil, fmt.Errorf("mattermost entries for url %q and the same auth source must use identical allowed_users and trigger_words", ac.Mattermost.URL)
+				}
+			} else {
+				mc = newMattermostClient(ac.Mattermost)
+				ma := &mattermostAdapter{ca: adapter}
+				if err := startMattermostClient(mc, ma); err != nil {
+					stopMattermostClients(mmClients)
+					return nil, nil, fmt.Errorf("mattermost client start failed: %w", err)
+				}
+				mmClientsByIdentity[identity] = mc
+				mmIngressByIdentity[identity] = ingress
+				mmClients = append(mmClients, mc)
+			}
 			alerters = append(alerters, mattermost.NewAlerter(mc, ac.Mattermost.ChannelID))
 		default:
+			stopMattermostClients(mmClients)
 			return nil, nil, fmt.Errorf("unknown alert type '%s'", ac.Type)
 		}
 	}
@@ -176,9 +202,7 @@ func buildAlerter(alerts []*config.AlertConfig, adapter *containerAdapter) (agen
 	var cleanup func()
 	if len(mmClients) > 0 {
 		cleanup = func() {
-			for _, c := range mmClients {
-				c.Stop()
-			}
+			stopMattermostClients(mmClients)
 		}
 	}
 
@@ -186,6 +210,55 @@ func buildAlerter(alerts []*config.AlertConfig, adapter *containerAdapter) (agen
 		return alerters[0], cleanup, nil
 	}
 	return &agent.MultiAlerter{Alerters: alerters}, cleanup, nil
+}
+
+type mattermostIngressIdentity struct {
+	URL        string
+	AuthSource string
+}
+
+func mattermostIdentity(cfg *config.MattermostConfig) mattermostIngressIdentity {
+	authSource := "token:" + cfg.Token
+	if cfg.TokenEnv != "" {
+		authSource = "env:" + cfg.TokenEnv
+	}
+	return mattermostIngressIdentity{
+		URL:        cfg.URL,
+		AuthSource: authSource,
+	}
+}
+
+func mattermostIngressSignature(cfg *config.MattermostConfig) string {
+	return canonicalMattermostList(cfg.AllowedUsers, true) + "|" + canonicalMattermostList(effectiveMattermostTriggerWords(cfg), true)
+}
+
+func canonicalMattermostList(values []string, foldCase bool) string {
+	normalized := make([]string, 0, len(values))
+	for _, value := range values {
+		value = strings.TrimSpace(value)
+		if foldCase {
+			value = strings.ToLower(value)
+		}
+		if value == "" {
+			continue
+		}
+		normalized = append(normalized, value)
+	}
+	slices.Sort(normalized)
+	return strings.Join(normalized, "\x00")
+}
+
+func effectiveMattermostTriggerWords(cfg *config.MattermostConfig) []string {
+	if len(cfg.TriggerWords) == 0 {
+		return []string{"sexton"}
+	}
+	return cfg.TriggerWords
+}
+
+func stopMattermostClients(clients []*mattermost.Client) {
+	for _, c := range clients {
+		stopMattermostClient(c)
+	}
 }
 
 // mattermostAdapter bridges containerAdapter to mattermost.CommandHandler.

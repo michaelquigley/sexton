@@ -55,10 +55,10 @@ type AlertConfig struct {
 }
 
 type MattermostConfig struct {
-	URL          string
+	URL          string `dd:",+required"`
 	Token        string
 	TokenEnv     string
-	ChannelID    string
+	ChannelID    string `dd:",+required"`
 	TriggerWords []string
 	AllowedUsers []string
 }

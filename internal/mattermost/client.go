@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"path"
 	"regexp"
 	"strings"
 	"sync"
@@ -107,7 +108,11 @@ func (c *Client) PostMessage(channelID, text string) error {
 	if err != nil {
 		return err
 	}
-	req, err := http.NewRequest("POST", c.cfg.URL+"/api/v4/posts", bytes.NewReader(body))
+	postURL, err := c.buildAPIURL("/api/v4/posts")
+	if err != nil {
+		return err
+	}
+	req, err := http.NewRequest("POST", postURL, bytes.NewReader(body))
 	if err != nil {
 		return err
 	}
@@ -143,18 +148,35 @@ func (c *Client) connectWebSocket() error {
 }
 
 func (c *Client) buildWebSocketURL() (string, error) {
-	u, err := url.Parse(c.cfg.URL)
+	u, err := c.buildURL("/api/v4/websocket")
 	if err != nil {
-		return "", fmt.Errorf("invalid mattermost url: %w", err)
+		return "", err
 	}
 	switch u.Scheme {
 	case "https":
 		u.Scheme = "wss"
-	default:
+	case "http":
 		u.Scheme = "ws"
 	}
-	u.Path = "/api/v4/websocket"
 	return u.String(), nil
+}
+
+func (c *Client) buildAPIURL(apiPath string) (string, error) {
+	u, err := c.buildURL(apiPath)
+	if err != nil {
+		return "", err
+	}
+	return u.String(), nil
+}
+
+func (c *Client) buildURL(endpointPath string) (*url.URL, error) {
+	u, err := url.Parse(c.cfg.URL)
+	if err != nil {
+		return nil, fmt.Errorf("invalid mattermost url: %w", err)
+	}
+	u.Path = path.Join("/", u.Path, endpointPath)
+	u.RawPath = ""
+	return u, nil
 }
 
 func (c *Client) listen() {
@@ -359,7 +381,11 @@ func (c *Client) resolveUsername(userID string) (string, error) {
 }
 
 func (c *Client) apiGet(path string) (map[string]interface{}, error) {
-	req, err := http.NewRequest("GET", c.cfg.URL+path, nil)
+	apiURL, err := c.buildAPIURL(path)
+	if err != nil {
+		return nil, err
+	}
+	req, err := http.NewRequest("GET", apiURL, nil)
 	if err != nil {
 		return nil, err
 	}

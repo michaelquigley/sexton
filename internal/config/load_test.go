@@ -3,6 +3,7 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -119,5 +120,53 @@ func TestResolveHookDirExpandsHomePath(t *testing.T) {
 	want := filepath.Join(home, "hooks")
 	if got := resolved.Hooks.PostPull[0].Dir; got != want {
 		t.Fatalf("resolved hook dir = %q, want %q", got, want)
+	}
+}
+
+func TestLoadRejectsMattermostConfigMissingRequiredFields(t *testing.T) {
+	tests := []struct {
+		name    string
+		content string
+		want    string
+	}{
+		{
+			name: "missing url",
+			content: `
+alerts:
+  - type: mattermost
+    mattermost:
+      channel_id: chan-1
+      token_env: MM_TOKEN
+`,
+			want: "required field missing",
+		},
+		{
+			name: "missing channel_id",
+			content: `
+alerts:
+  - type: mattermost
+    mattermost:
+      url: https://mm.local
+      token_env: MM_TOKEN
+`,
+			want: "required field missing",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			configPath := filepath.Join(t.TempDir(), "config.yaml")
+			if err := os.WriteFile(configPath, []byte(strings.TrimSpace(tt.content)), 0o644); err != nil {
+				t.Fatalf("WriteFile() error = %v", err)
+			}
+
+			_, err := Load(configPath)
+			if err == nil {
+				t.Fatal("Load() error = nil, want non-nil")
+			}
+			if !strings.Contains(err.Error(), tt.want) {
+				t.Fatalf("Load() error = %q, want substring %q", err, tt.want)
+			}
+		})
 	}
 }

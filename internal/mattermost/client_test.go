@@ -110,6 +110,29 @@ func TestPostMessage(t *testing.T) {
 	}
 }
 
+func TestPostMessagePreservesBasePath(t *testing.T) {
+	var gotPath string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotPath = r.URL.Path
+		w.WriteHeader(http.StatusCreated)
+		w.Write([]byte(`{}`))
+	}))
+	defer srv.Close()
+
+	c := &Client{
+		cfg:        &config.MattermostConfig{URL: srv.URL + "/mattermost/"},
+		token:      "test-token",
+		httpClient: srv.Client(),
+	}
+	err := c.PostMessage("chan123", "hello")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if gotPath != "/mattermost/api/v4/posts" {
+		t.Fatalf("request path = %q, want %q", gotPath, "/mattermost/api/v4/posts")
+	}
+}
+
 func TestSelfMessageSuppression(t *testing.T) {
 	c := &Client{
 		cfg:       &config.MattermostConfig{URL: "http://localhost"},
@@ -334,6 +357,9 @@ func TestBuildWebSocketURL(t *testing.T) {
 		expect string
 	}{
 		{"https://mm.local", "wss://mm.local/api/v4/websocket"},
+		{"https://mm.local/", "wss://mm.local/api/v4/websocket"},
+		{"https://mm.local/mattermost", "wss://mm.local/mattermost/api/v4/websocket"},
+		{"https://mm.local/mattermost/", "wss://mm.local/mattermost/api/v4/websocket"},
 		{"http://mm.local", "ws://mm.local/api/v4/websocket"},
 		{"http://mm.local:8065", "ws://mm.local:8065/api/v4/websocket"},
 	}
