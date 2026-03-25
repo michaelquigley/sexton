@@ -3,6 +3,7 @@ module github.com/michaelquigley/sexton
 go 1.26.1
 
 require (
+	github.com/gorilla/websocket v1.5.3
 	github.com/michaelquigley/df v0.3.11
 	github.com/spf13/cobra v1.10.2
 	google.golang.org/grpc v1.79.2

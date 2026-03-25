@@ -50,7 +50,17 @@ type LLMConfig struct {
 }
 
 type AlertConfig struct {
-	Type string
+	Type       string
+	Mattermost *MattermostConfig
+}
+
+type MattermostConfig struct {
+	URL          string
+	Token        string
+	TokenEnv     string
+	ChannelID    string
+	TriggerWords []string
+	AllowedUsers []string
 }
 
 type RepoLocalConfig struct {

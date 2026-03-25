@@ -175,6 +175,7 @@ func (a *Agent) Snooze(d time.Duration) (time.Time, error) {
 	a.mu.Unlock()
 
 	dl.Infof("snoozed '%s' until %s", a.cfg.Name, until.Format(time.RFC3339))
+	a.alert("info", "snoozed", nil)
 	return until, nil
 }
 
@@ -192,6 +193,7 @@ func (a *Agent) Resume() error {
 	}
 	a.mu.Unlock()
 	dl.Infof("resumed '%s'", a.cfg.Name)
+	a.alert("info", "resumed", nil)
 	select {
 	case a.syncCh <- struct{}{}:
 	default:
@@ -461,10 +463,17 @@ func (a *Agent) sync() {
 		return
 	}
 
+	a.mu.Lock()
+	wasError := a.state == Error
+	a.mu.Unlock()
+
 	a.completeSync(sha, commitTime)
 
 	dl.Debugf("sync complete for '%s'", a.cfg.Name)
 
+	if wasError {
+		a.alert("info", "recovered from error", nil)
+	}
 	if dirty {
 		a.alert("info", "sync complete ("+sha+")", nil)
 	}

@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"errors"
 	"time"
 
 	"github.com/michaelquigley/df/dl"
@@ -35,4 +36,19 @@ func (a *LogAlerter) Alert(_ context.Context, event AlertEvent) error {
 		dl.Infof("[%s] %s", event.RepoPath, event.Message)
 	}
 	return nil
+}
+
+// MultiAlerter composes multiple alerters, calling all of them for each event.
+type MultiAlerter struct {
+	Alerters []Alerter
+}
+
+func (m *MultiAlerter) Alert(ctx context.Context, event AlertEvent) error {
+	var errs []error
+	for _, a := range m.Alerters {
+		if err := a.Alert(ctx, event); err != nil {
+			errs = append(errs, err)
+		}
+	}
+	return errors.Join(errs...)
 }
