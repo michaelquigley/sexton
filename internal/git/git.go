@@ -27,7 +27,7 @@ func (g *Git) IsRepo() bool {
 }
 
 func (g *Git) Status(ctx context.Context) (*Status, error) {
-	out, err := g.runCtx(ctx, "status", "--porcelain", "-b")
+	out, err := g.runCtx(ctx, "status", "--porcelain", "-b", "-uall")
 	if err != nil {
 		return nil, err
 	}

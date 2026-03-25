@@ -270,6 +270,7 @@ func (a *Agent) sync() {
 	}
 
 	var status *git.Status
+	var commitMsg string
 
 	dirty, err := a.git.IsDirty(ctx)
 	if err != nil {
@@ -316,7 +317,8 @@ func (a *Agent) sync() {
 		}
 
 		dl.Infof("generating commit message for '%s'", a.cfg.Name)
-		msg, err := a.generateCommitMessage(ctx, status)
+		var msg string
+		msg, err = a.generateCommitMessage(ctx, status)
 		if err != nil {
 			if a.syncCanceled(ctx, err) {
 				return
@@ -324,7 +326,7 @@ func (a *Agent) sync() {
 			a.setError("commit message generation failed", err)
 			return
 		}
-		dl.Infof("generated commit message '%v'", msg)
+		commitMsg = msg
 		if a.shouldAbortSync(ctx) {
 			return
 		}
@@ -477,7 +479,7 @@ func (a *Agent) sync() {
 		a.alert("info", "recovered from error", nil)
 	}
 	if dirty {
-		a.alertWithFiles("info", "sync complete ("+sha+")", status)
+		a.alertWithFiles("info", "sync complete ("+sha+")", status, commitMsg)
 	}
 }
 
@@ -603,7 +605,7 @@ func (a *Agent) alert(severity, message string, err error) {
 	})
 }
 
-func (a *Agent) alertWithFiles(severity, message string, status *git.Status) {
+func (a *Agent) alertWithFiles(severity, message string, status *git.Status, commitMessage string) {
 	var files *AlertFiles
 	if status != nil {
 		files = &AlertFiles{
@@ -613,11 +615,12 @@ func (a *Agent) alertWithFiles(severity, message string, status *git.Status) {
 		}
 	}
 	_ = a.alerter.Alert(context.Background(), AlertEvent{
-		Severity:  severity,
-		RepoPath:  a.cfg.Name,
-		Message:   message,
-		Timestamp: time.Now(),
-		Files:     files,
+		Severity:      severity,
+		RepoPath:      a.cfg.Name,
+		Message:       message,
+		Timestamp:     time.Now(),
+		Files:         files,
+		CommitMessage: commitMessage,
 	})
 }
 

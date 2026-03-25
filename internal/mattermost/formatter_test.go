@@ -100,9 +100,10 @@ func TestFormatStatusEmpty(t *testing.T) {
 func TestFormatStatusTable(t *testing.T) {
 	statuses := []RepoStatus{
 		{
-			Name:   "notes",
-			State:  "watching",
-			Branch: "main",
+			Name:     "notes",
+			State:    "watching",
+			Branch:   "main",
+			LastSync: time.Now().Add(-5 * time.Minute),
 		},
 		{
 			Name:            "config",
@@ -117,6 +118,22 @@ func TestFormatStatusTable(t *testing.T) {
 	}
 	if !strings.Contains(got, "snoozed (30m0s left)") {
 		t.Errorf("expected snooze remaining, got %q", got)
+	}
+	if !strings.Contains(got, "5m ago") {
+		t.Errorf("expected human-friendly duration, got %q", got)
+	}
+}
+
+func TestFormatAlertWithCommitMessage(t *testing.T) {
+	event := agent.AlertEvent{
+		Severity:      "info",
+		RepoPath:      "my-notes",
+		Message:        "sync complete (abc123)",
+		CommitMessage: "add pane design spec and update project index",
+	}
+	got := FormatAlert(event)
+	if !strings.Contains(got, "> add pane design spec and update project index") {
+		t.Errorf("expected commit message in blockquote, got %q", got)
 	}
 }
 

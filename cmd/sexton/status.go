@@ -8,6 +8,7 @@ import (
 	"time"
 
 	sextonv1 "github.com/michaelquigley/sexton/api/v1"
+	"github.com/michaelquigley/sexton/internal/format"
 	"github.com/spf13/cobra"
 )
 
@@ -77,19 +78,5 @@ func formatLastSync(lastSync string, now time.Time) string {
 		return lastSync
 	}
 
-	elapsed := now.Sub(t)
-	if elapsed < 0 {
-		elapsed = 0
-	}
-
-	switch {
-	case elapsed < time.Minute:
-		return fmt.Sprintf("%ds ago", int(elapsed/time.Second))
-	case elapsed < time.Hour:
-		return fmt.Sprintf("%dm ago", int(elapsed/time.Minute))
-	case elapsed < 24*time.Hour:
-		return fmt.Sprintf("%dh ago", int(elapsed/time.Hour))
-	default:
-		return fmt.Sprintf("%dd ago", int(elapsed/(24*time.Hour)))
-	}
+	return format.DurationAgo(now.Sub(t))
 }

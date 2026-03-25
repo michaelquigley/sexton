@@ -15,12 +15,13 @@ type AlertFiles struct {
 }
 
 type AlertEvent struct {
-	Severity  string
-	RepoPath  string
-	Message   string
-	Error     error
-	Timestamp time.Time
-	Files     *AlertFiles
+	Severity      string
+	RepoPath      string
+	Message       string
+	Error         error
+	Timestamp     time.Time
+	Files         *AlertFiles
+	CommitMessage string
 }
 
 type Alerter interface {
@@ -46,6 +47,9 @@ func (a *LogAlerter) Alert(_ context.Context, event AlertEvent) error {
 				len(event.Files.Modified), len(event.Files.Added), len(event.Files.Deleted))
 		} else {
 			dl.Infof("[%s] %s", event.RepoPath, event.Message)
+		}
+		if event.CommitMessage != "" {
+			dl.Infof("[%s] commit message: '%s'", event.RepoPath, event.CommitMessage)
 		}
 	}
 	return nil

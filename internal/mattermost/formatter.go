@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/michaelquigley/sexton/internal/agent"
+	"github.com/michaelquigley/sexton/internal/format"
 )
 
 // FormatAlert formats an alert event as mattermost markdown.
@@ -22,6 +23,9 @@ func FormatAlert(event agent.AlertEvent) string {
 	fmt.Fprintf(&b, " [%s] %s", event.RepoPath, event.Message)
 	if event.Error != nil {
 		fmt.Fprintf(&b, ": %v", event.Error)
+	}
+	if event.CommitMessage != "" {
+		fmt.Fprintf(&b, "\n> %s", event.CommitMessage)
 	}
 	if event.Files != nil {
 		formatFileList(&b, "modified", event.Files.Modified)
@@ -57,11 +61,11 @@ func FormatStatus(statuses []RepoStatus) string {
 	for _, s := range statuses {
 		lastSync := ""
 		if !s.LastSync.IsZero() {
-			lastSync = s.LastSync.Format(time.RFC3339)
+			lastSync = format.TimeAgo(s.LastSync)
 		}
 		lastChange := ""
 		if !s.LastChange.IsZero() {
-			lastChange = s.LastChange.Format(time.RFC3339)
+			lastChange = format.TimeAgo(s.LastChange)
 		}
 		state := s.State
 		if s.SnoozeRemaining > 0 {
