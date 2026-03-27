@@ -296,15 +296,6 @@ func (a *Agent) sync() {
 			return
 		}
 
-		status, err = a.git.Status(ctx)
-		if err != nil {
-			if a.syncCanceled(ctx, err) {
-				return
-			}
-			a.setError("failed to read git status", err)
-			return
-		}
-
 		if err := a.git.StageAll(ctx); err != nil {
 			if a.syncCanceled(ctx, err) {
 				return
@@ -313,6 +304,15 @@ func (a *Agent) sync() {
 			return
 		}
 		if a.shouldAbortSync(ctx) {
+			return
+		}
+
+		status, err = a.git.Status(ctx)
+		if err != nil {
+			if a.syncCanceled(ctx, err) {
+				return
+			}
+			a.setError("failed to read git status", err)
 			return
 		}
 

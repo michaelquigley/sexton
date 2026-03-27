@@ -40,10 +40,6 @@ func (g *Git) StageAll(ctx context.Context) error {
 }
 
 func (g *Git) Commit(ctx context.Context, message string) error {
-	if _, err := g.runCtx(ctx, "add", "-A"); err != nil {
-		return err
-	}
-
 	dirty, err := g.IsDirty(ctx)
 	if err != nil {
 		return err
