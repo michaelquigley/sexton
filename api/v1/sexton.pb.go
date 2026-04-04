@@ -66,18 +66,19 @@ func (x *StatusRequest) GetRepo() string {
 }
 
 type RepoStatus struct {
-	state           protoimpl.MessageState `protogen:"open.v1"`
-	Path            string                 `protobuf:"bytes,1,opt,name=path,proto3" json:"path,omitempty"`
-	State           string                 `protobuf:"bytes,2,opt,name=state,proto3" json:"state,omitempty"` // watching, syncing, snoozed, error
-	Branch          string                 `protobuf:"bytes,3,opt,name=branch,proto3" json:"branch,omitempty"`
-	LastSync        string                 `protobuf:"bytes,4,opt,name=last_sync,json=lastSync,proto3" json:"last_sync,omitempty"`                      // RFC3339 timestamp
-	LastCommit      string                 `protobuf:"bytes,5,opt,name=last_commit,json=lastCommit,proto3" json:"last_commit,omitempty"`                // short SHA
-	Error           string                 `protobuf:"bytes,6,opt,name=error,proto3" json:"error,omitempty"`                                            // populated when errored
-	SnoozeRemaining string                 `protobuf:"bytes,7,opt,name=snooze_remaining,json=snoozeRemaining,proto3" json:"snooze_remaining,omitempty"` // populated when snoozed
-	Name            string                 `protobuf:"bytes,8,opt,name=name,proto3" json:"name,omitempty"`
-	LastChange      string                 `protobuf:"bytes,9,opt,name=last_change,json=lastChange,proto3" json:"last_change,omitempty"` // RFC3339 timestamp
-	unknownFields   protoimpl.UnknownFields
-	sizeCache       protoimpl.SizeCache
+	state            protoimpl.MessageState `protogen:"open.v1"`
+	Path             string                 `protobuf:"bytes,1,opt,name=path,proto3" json:"path,omitempty"`
+	State            string                 `protobuf:"bytes,2,opt,name=state,proto3" json:"state,omitempty"` // watching, syncing, snoozed, holdout, error
+	Branch           string                 `protobuf:"bytes,3,opt,name=branch,proto3" json:"branch,omitempty"`
+	LastSync         string                 `protobuf:"bytes,4,opt,name=last_sync,json=lastSync,proto3" json:"last_sync,omitempty"`                      // RFC3339 timestamp
+	LastCommit       string                 `protobuf:"bytes,5,opt,name=last_commit,json=lastCommit,proto3" json:"last_commit,omitempty"`                // short SHA
+	Error            string                 `protobuf:"bytes,6,opt,name=error,proto3" json:"error,omitempty"`                                            // populated when errored
+	SnoozeRemaining  string                 `protobuf:"bytes,7,opt,name=snooze_remaining,json=snoozeRemaining,proto3" json:"snooze_remaining,omitempty"` // populated when snoozed
+	Name             string                 `protobuf:"bytes,8,opt,name=name,proto3" json:"name,omitempty"`
+	LastChange       string                 `protobuf:"bytes,9,opt,name=last_change,json=lastChange,proto3" json:"last_change,omitempty"`                    // RFC3339 timestamp
+	HoldoutRemaining string                 `protobuf:"bytes,10,opt,name=holdout_remaining,json=holdoutRemaining,proto3" json:"holdout_remaining,omitempty"` // populated when in holdout
+	unknownFields    protoimpl.UnknownFields
+	sizeCache        protoimpl.SizeCache
 }
 
 func (x *RepoStatus) Reset() {
@@ -169,6 +170,13 @@ func (x *RepoStatus) GetName() string {
 func (x *RepoStatus) GetLastChange() string {
 	if x != nil {
 		return x.LastChange
+	}
+	return ""
+}
+
+func (x *RepoStatus) GetHoldoutRemaining() string {
+	if x != nil {
+		return x.HoldoutRemaining
 	}
 	return ""
 }
@@ -495,7 +503,7 @@ const file_api_v1_sexton_proto_rawDesc = "" +
 	"\n" +
 	"\x13api/v1/sexton.proto\x12\tsexton.v1\"#\n" +
 	"\rStatusRequest\x12\x12\n" +
-	"\x04repo\x18\x01 \x01(\tR\x04repo\"\x82\x02\n" +
+	"\x04repo\x18\x01 \x01(\tR\x04repo\"\xaf\x02\n" +
 	"\n" +
 	"RepoStatus\x12\x12\n" +
 	"\x04path\x18\x01 \x01(\tR\x04path\x12\x14\n" +
@@ -508,7 +516,9 @@ const file_api_v1_sexton_proto_rawDesc = "" +
 	"\x10snooze_remaining\x18\a \x01(\tR\x0fsnoozeRemaining\x12\x12\n" +
 	"\x04name\x18\b \x01(\tR\x04name\x12\x1f\n" +
 	"\vlast_change\x18\t \x01(\tR\n" +
-	"lastChange\"=\n" +
+	"lastChange\x12+\n" +
+	"\x11holdout_remaining\x18\n" +
+	" \x01(\tR\x10holdoutRemaining\"=\n" +
 	"\x0eStatusResponse\x12+\n" +
 	"\x05repos\x18\x01 \x03(\v2\x15.sexton.v1.RepoStatusR\x05repos\"!\n" +
 	"\vSyncRequest\x12\x12\n" +

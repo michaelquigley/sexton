@@ -11,7 +11,7 @@ type mockHandler struct {
 	statusFn func(repo string) ([]RepoStatus, error)
 	syncFn   func(repo string) error
 	snoozeFn func(repo string, d time.Duration) (time.Time, error)
-	resumeFn func(repo string) error
+	resumeFn func(repo string) (string, error)
 }
 
 func (m *mockHandler) Status(repo string) ([]RepoStatus, error) {
@@ -35,11 +35,11 @@ func (m *mockHandler) Snooze(repo string, d time.Duration) (time.Time, error) {
 	return time.Now().Add(d), nil
 }
 
-func (m *mockHandler) Resume(repo string) error {
+func (m *mockHandler) Resume(repo string) (string, error) {
 	if m.resumeFn != nil {
 		return m.resumeFn(repo)
 	}
-	return nil
+	return "resumed", nil
 }
 
 func TestDispatchEmpty(t *testing.T) {
@@ -198,9 +198,9 @@ func TestDispatchSnoozeInvalidDuration(t *testing.T) {
 func TestDispatchResume(t *testing.T) {
 	var resumedRepo string
 	h := &mockHandler{
-		resumeFn: func(repo string) error {
+		resumeFn: func(repo string) (string, error) {
 			resumedRepo = repo
-			return nil
+			return "resumed", nil
 		},
 	}
 	resp, _ := Dispatch("resume notes", h)
@@ -209,6 +209,18 @@ func TestDispatchResume(t *testing.T) {
 	}
 	if !strings.Contains(resp, "resumed 'notes'") {
 		t.Errorf("expected confirmation, got %q", resp)
+	}
+}
+
+func TestDispatchResumeUsesCustomMessage(t *testing.T) {
+	h := &mockHandler{
+		resumeFn: func(repo string) (string, error) {
+			return "holdout remains active until 2026-04-03T11:00:00-04:00", nil
+		},
+	}
+	resp, _ := Dispatch("resume notes", h)
+	if !strings.Contains(resp, "holdout remains active until") {
+		t.Errorf("expected holdout message, got %q", resp)
 	}
 }
 

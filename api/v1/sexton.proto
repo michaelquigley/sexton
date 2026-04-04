@@ -24,14 +24,15 @@ message StatusRequest {
 
 message RepoStatus {
   string path = 1;
-  string state = 2;            // watching, syncing, snoozed, error
+  string state = 2;            // watching, syncing, snoozed, holdout, error
   string branch = 3;
   string last_sync = 4;        // RFC3339 timestamp
   string last_commit = 5;      // short SHA
   string error = 6;            // populated when errored
   string snooze_remaining = 7; // populated when snoozed
   string name = 8;
-  string last_change = 9;  // RFC3339 timestamp
+  string last_change = 9;      // RFC3339 timestamp
+  string holdout_remaining = 10; // populated when in holdout
 }
 
 message StatusResponse {

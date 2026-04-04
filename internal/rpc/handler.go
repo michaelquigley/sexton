@@ -42,6 +42,9 @@ func (h *handler) Status(_ context.Context, req *sextonv1.StatusRequest) (*sexto
 		if info.SnoozeRemaining > 0 {
 			rs.SnoozeRemaining = info.SnoozeRemaining.Round(time.Second).String()
 		}
+		if info.HoldoutRemaining > 0 {
+			rs.HoldoutRemaining = info.HoldoutRemaining.Round(time.Second).String()
+		}
 		resp.Repos = append(resp.Repos, rs)
 	}
 	return resp, nil
@@ -69,10 +72,11 @@ func (h *handler) Snooze(_ context.Context, req *sextonv1.SnoozeRequest) (*sexto
 }
 
 func (h *handler) Resume(_ context.Context, req *sextonv1.ResumeRequest) (*sextonv1.ResumeResponse, error) {
-	if err := h.ctrl.ResumeRepo(req.GetRepo()); err != nil {
+	message, err := h.ctrl.ResumeRepo(req.GetRepo())
+	if err != nil {
 		return nil, operationError(err)
 	}
-	return &sextonv1.ResumeResponse{Message: "resumed"}, nil
+	return &sextonv1.ResumeResponse{Message: message}, nil
 }
 
 func operationError(err error) error {

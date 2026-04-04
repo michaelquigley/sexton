@@ -63,6 +63,9 @@ defaults:
   poll_interval: 30s
   branch: main
   remote: origin
+  holdout_windows:
+    - start: "02:00"
+      end: "02:30"
 
 alerts:
   - type: log
@@ -76,6 +79,9 @@ repos:
   - path: ~/datasets/research
     name: research
     poll_interval: 60s
+    holdout_windows:
+      - start: "23:30"
+        end: "00:15"
 ```
 
 ### Repo-local config
@@ -88,6 +94,9 @@ branch: main
 commit_message_prompt: |
   Summarize this diff as a commit message for a personal knowledge base.
   Be brief. Use present tense.
+holdout_windows:
+  - start: "01:00"
+    end: "01:20"
 hooks:
   post_pull:
     - command: "lore sync"
@@ -108,6 +117,7 @@ hooks:
 | `branch` | global, repo | `main` | Branch Sexton requires the repo to be checked out on before syncing |
 | `remote` | global, repo | `origin` | Git remote Sexton explicitly pulls from and pushes to |
 | `commit_message_prompt` | global, repo | (built-in) | System prompt for LLM commit summarization |
+| `holdout_windows` | global, repo | -- | Daily local-time windows where sync is paused; each entry is `{start,end}` in `HH:MM` 24-hour format |
 | `hooks.pre_commit` | global, repo | -- | Commands to run before staging and committing |
 | `hooks.post_commit` | global, repo | -- | Commands to run after a successful commit |
 | `hooks.post_pull` | global, repo | -- | Commands to run after a successful pull |
@@ -116,11 +126,15 @@ hooks:
 
 Each hook entry has a `command` (shell string) and optional `timeout` (default `30s`), `dir` (working directory, defaults to repo root; relative paths are repo-root-relative), and `env` (map of additional environment variables).
 
+Each `holdout_windows` entry is a daily recurring local-time window. `end` earlier than `start` means the window crosses midnight.
+
 ### Cascade order
 
 Repo-local config > global repo entry > global defaults > built-in defaults.
 
 For hooks, the cascade is per-phase replacement -- if `.sexton.yaml` defines `post_pull` hooks, they replace any `post_pull` hooks from the global config entirely (not concatenated).
+
+For `holdout_windows`, the cascade is whole-list replacement at each level.
 
 ### Lifecycle hooks
 
@@ -155,6 +169,8 @@ If multiple repos share the same basename, target them by configured `name` or f
 
 The `BRANCH` column shows the repo's actual current checkout. If it differs from the configured `branch`, the repo enters `error` with a mismatch message.
 
+The `PAUSE` column shows the remaining holdout or snooze duration when a repo is paused.
+
 ### Trigger immediate sync
 
 ```bash
@@ -175,6 +191,8 @@ sexton resume grimoire
 
 `resume` is still useful for clearing a snooze or forcing an immediate retry for an errored repo, but normal recovery no longer depends on it.
 
+If a configured holdout is active, `sync` does not bypass it and `resume` only clears a manual snooze or stored error; the repo remains in `holdout` until the window ends.
+
 ## Repo states
 
 ```mermaid
@@ -190,12 +208,17 @@ stateDiagram-v2
 
     watching --> snoozed : user snooze
     snoozed --> watching : timeout expires / resume
+    watching --> holdout : holdout window starts
+    holdout --> snoozed : holdout ends with manual snooze remaining
+    holdout --> watching : holdout ends
+    syncing --> holdout : holdout begins at a checkpoint
 ```
 
 - **watching** -- polling on the configured interval
 - **syncing** -- executing stage, commit, pull, push
 - **error** -- last sync attempt failed; visible in status and retried automatically
 - **snoozed** -- temporarily paused; auto-expires after the specified duration
+- **holdout** -- paused by a configured daily maintenance window
 
 ## Commit messages
 

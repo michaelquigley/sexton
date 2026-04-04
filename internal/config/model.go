@@ -24,11 +24,17 @@ type HooksConfig struct {
 	PostSync   []*HookEntry
 }
 
+type HoldoutWindowEntry struct {
+	Start string
+	End   string
+}
+
 type RepoDefaults struct {
 	PollInterval        string
 	Branch              string
 	Remote              string
 	CommitMessagePrompt string
+	HoldoutWindows      []*HoldoutWindowEntry
 	Hooks               *HooksConfig
 }
 
@@ -39,6 +45,7 @@ type RepoEntry struct {
 	Branch              string
 	Remote              string
 	CommitMessagePrompt string
+	HoldoutWindows      []*HoldoutWindowEntry
 	Hooks               *HooksConfig
 }
 
@@ -69,6 +76,7 @@ type RepoLocalConfig struct {
 	Branch              string
 	Remote              string
 	CommitMessagePrompt string
+	HoldoutWindows      []*HoldoutWindowEntry
 	Hooks               *HooksConfig
 }
 
@@ -87,6 +95,11 @@ type ResolvedHooks struct {
 	PostSync   []*ResolvedHook
 }
 
+type ResolvedHoldoutWindow struct {
+	StartMinute int
+	EndMinute   int
+}
+
 type ResolvedRepo struct {
 	Path                string
 	Name                string
@@ -95,6 +108,7 @@ type ResolvedRepo struct {
 	Branch              string
 	Remote              string
 	CommitMessagePrompt string
+	HoldoutWindows      []*ResolvedHoldoutWindow
 	Hooks               *ResolvedHooks
 }
 

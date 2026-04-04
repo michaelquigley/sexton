@@ -7,6 +7,7 @@ const (
 	Syncing
 	Error
 	Snoozed
+	Holdout
 )
 
 func (s State) String() string {
@@ -19,6 +20,8 @@ func (s State) String() string {
 		return "error"
 	case Snoozed:
 		return "snoozed"
+	case Holdout:
+		return "holdout"
 	default:
 		return "unknown"
 	}

@@ -104,10 +104,10 @@ func (a *containerAdapter) SnoozeRepo(repo string, d time.Duration) (time.Time, 
 	return ag.Snooze(d)
 }
 
-func (a *containerAdapter) ResumeRepo(repo string) error {
+func (a *containerAdapter) ResumeRepo(repo string) (string, error) {
 	ag, err := a.resolveAgent(repo)
 	if err != nil {
-		return err
+		return "", err
 	}
 	return ag.Resume()
 }
@@ -133,14 +133,15 @@ func (a *containerAdapter) resolveAgent(repo string) (*agent.Agent, error) {
 
 func agentToRepoInfo(ag *agent.Agent) rpc.RepoInfo {
 	info := rpc.RepoInfo{
-		Path:            ag.Path(),
-		Name:            ag.Name(),
-		State:           ag.State().String(),
-		Branch:          ag.Branch(),
-		LastSync:        ag.LastSync(),
-		LastCommit:      ag.LastCommit(),
-		LastChange:      ag.LastChange(),
-		SnoozeRemaining: ag.SnoozeRemaining(),
+		Path:             ag.Path(),
+		Name:             ag.Name(),
+		State:            ag.State().String(),
+		Branch:           ag.Branch(),
+		LastSync:         ag.LastSync(),
+		LastCommit:       ag.LastCommit(),
+		LastChange:       ag.LastChange(),
+		SnoozeRemaining:  ag.SnoozeRemaining(),
+		HoldoutRemaining: ag.HoldoutRemaining(),
 	}
 	if detail := ag.ErrorDetail(); detail != "" {
 		info.Error = detail
@@ -274,15 +275,16 @@ func (a *mattermostAdapter) Status(repo string) ([]mattermost.RepoStatus, error)
 	var out []mattermost.RepoStatus
 	for _, info := range infos {
 		out = append(out, mattermost.RepoStatus{
-			Name:            info.Name,
-			Path:            info.Path,
-			State:           info.State,
-			Branch:          info.Branch,
-			LastSync:        info.LastSync,
-			LastCommit:      info.LastCommit,
-			LastChange:      info.LastChange,
-			Error:           info.Error,
-			SnoozeRemaining: info.SnoozeRemaining,
+			Name:             info.Name,
+			Path:             info.Path,
+			State:            info.State,
+			Branch:           info.Branch,
+			LastSync:         info.LastSync,
+			LastCommit:       info.LastCommit,
+			LastChange:       info.LastChange,
+			Error:            info.Error,
+			SnoozeRemaining:  info.SnoozeRemaining,
+			HoldoutRemaining: info.HoldoutRemaining,
 		})
 	}
 	return out, nil
@@ -296,6 +298,6 @@ func (a *mattermostAdapter) Snooze(repo string, d time.Duration) (time.Time, err
 	return a.ca.SnoozeRepo(repo, d)
 }
 
-func (a *mattermostAdapter) Resume(repo string) error {
+func (a *mattermostAdapter) Resume(repo string) (string, error) {
 	return a.ca.ResumeRepo(repo)
 }

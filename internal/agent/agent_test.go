@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -134,6 +135,7 @@ func newAgentForTest(g gitClient, alerter Alerter) *Agent {
 		syncCh:  make(chan struct{}, 1),
 		runCtx:  runCtx,
 		cancel:  cancel,
+		now:     time.Now,
 	}
 }
 
@@ -247,6 +249,7 @@ func TestTriggerSyncAllowsErrorButNotSnoozed(t *testing.T) {
 	}
 
 	a.state = Snoozed
+	a.snoozeUntil = time.Now().Add(time.Minute)
 	if err := a.TriggerSync(); err == nil {
 		t.Fatal("expected snoozed trigger to fail")
 	}
@@ -273,8 +276,12 @@ func TestResumeClearsErrorAndQueuesRetry(t *testing.T) {
 	a.state = Error
 	a.errorDetail = "push failed: rejected"
 
-	if err := a.Resume(); err != nil {
+	message, err := a.Resume()
+	if err != nil {
 		t.Fatalf("expected resume to succeed, got %v", err)
+	}
+	if message != "resumed" {
+		t.Fatalf("expected resume message, got %q", message)
 	}
 	if got := a.State(); got != Watching {
 		t.Fatalf("expected watching state, got %s", got)
@@ -422,8 +429,12 @@ func TestResumeClearsDeferredSnoozeAndQueuesRetry(t *testing.T) {
 	if _, err := a.Snooze(time.Minute); err != nil {
 		t.Fatalf("expected snooze during sync to succeed, got %v", err)
 	}
-	if err := a.Resume(); err != nil {
+	message, err := a.Resume()
+	if err != nil {
 		t.Fatalf("expected resume to clear deferred snooze, got %v", err)
+	}
+	if message != "resumed" {
+		t.Fatalf("expected resume message, got %q", message)
 	}
 	if got := a.State(); got != Syncing {
 		t.Fatalf("expected sync to continue after resuming deferred snooze, got %s", got)
@@ -443,6 +454,119 @@ func TestResumeClearsDeferredSnoozeAndQueuesRetry(t *testing.T) {
 	select {
 	case <-a.syncCh:
 		t.Fatal("expected exactly one queued retry after resume")
+	default:
+	}
+}
+
+func TestSyncSkipsActiveHoldout(t *testing.T) {
+	now := time.Date(2026, time.April, 3, 10, 30, 0, 0, time.Local)
+	g := &stubGit{}
+	a := newAgentForTest(g, nil)
+	a.now = func() time.Time { return now }
+	a.cfg.HoldoutWindows = []*config.ResolvedHoldoutWindow{
+		{StartMinute: 10 * 60, EndMinute: 11 * 60},
+	}
+
+	a.sync()
+
+	if got := a.State(); got != Holdout {
+		t.Fatalf("expected holdout state, got %s", got)
+	}
+	if g.pullCalls != 0 || g.pushCalls != 0 || g.stageCalls != 0 {
+		t.Fatalf("expected no git activity during holdout, got pull=%d push=%d stage=%d", g.pullCalls, g.pushCalls, g.stageCalls)
+	}
+	if got := a.HoldoutRemaining(); got != 30*time.Minute {
+		t.Fatalf("expected 30m holdout remaining, got %v", got)
+	}
+}
+
+func TestTriggerSyncFailsDuringHoldout(t *testing.T) {
+	now := time.Date(2026, time.April, 3, 10, 15, 0, 0, time.Local)
+	a := newAgentForTest(&stubGit{}, nil)
+	a.now = func() time.Time { return now }
+	a.cfg.HoldoutWindows = []*config.ResolvedHoldoutWindow{
+		{StartMinute: 10 * 60, EndMinute: 11 * 60},
+	}
+
+	err := a.TriggerSync()
+	if err == nil {
+		t.Fatal("expected holdout trigger failure")
+	}
+	if got := a.State(); got != Holdout {
+		t.Fatalf("expected holdout state, got %s", got)
+	}
+}
+
+func TestHoldoutDuringSyncWaitsForCheckpointAndStopsLaterPhases(t *testing.T) {
+	now := time.Date(2026, time.April, 3, 9, 59, 0, 0, time.Local)
+	g := &stubGit{
+		shortHEAD: "abc123",
+		onPull: func(context.Context) {
+			now = time.Date(2026, time.April, 3, 10, 0, 0, 0, time.Local)
+		},
+	}
+	a := newAgentForTest(g, nil)
+	a.now = func() time.Time { return now }
+	a.cfg.HoldoutWindows = []*config.ResolvedHoldoutWindow{
+		{StartMinute: 10 * 60, EndMinute: 11 * 60},
+	}
+
+	a.sync()
+
+	if got := a.State(); got != Holdout {
+		t.Fatalf("expected holdout state after checkpoint, got %s", got)
+	}
+	if g.pushCalls != 0 {
+		t.Fatalf("expected push to be skipped after holdout, got %d calls", g.pushCalls)
+	}
+	if g.shortHEADCalls != 0 {
+		t.Fatalf("expected short HEAD lookup to be skipped after holdout, got %d calls", g.shortHEADCalls)
+	}
+	if !a.LastSync().IsZero() {
+		t.Fatal("expected last sync to remain unset when holdout pauses mid-cycle")
+	}
+}
+
+func TestHandleHoldoutTransitionLeavesManualSnoozeActive(t *testing.T) {
+	now := time.Date(2026, time.April, 3, 11, 0, 0, 0, time.Local)
+	a := newAgentForTest(&stubGit{}, nil)
+	a.now = func() time.Time { return now }
+	a.state = Holdout
+	a.snoozeUntil = now.Add(30 * time.Minute)
+
+	a.handleHoldoutTransition()
+
+	if got := a.State(); got != Snoozed {
+		t.Fatalf("expected snoozed state after holdout ends, got %s", got)
+	}
+}
+
+func TestResumeDuringHoldoutClearsManualSnoozeWithoutBypassing(t *testing.T) {
+	now := time.Date(2026, time.April, 3, 10, 15, 0, 0, time.Local)
+	a := newAgentForTest(&stubGit{}, nil)
+	a.now = func() time.Time { return now }
+	a.cfg.HoldoutWindows = []*config.ResolvedHoldoutWindow{
+		{StartMinute: 10 * 60, EndMinute: 11 * 60},
+	}
+	a.state = Holdout
+	a.snoozeUntil = now.Add(30 * time.Minute)
+
+	message, err := a.Resume()
+	if err != nil {
+		t.Fatalf("expected resume to clear manual snooze during holdout, got %v", err)
+	}
+	if !strings.Contains(message, "holdout remains active until 2026-04-03T11:00:00") {
+		t.Fatalf("unexpected resume message %q", message)
+	}
+	if got := a.State(); got != Holdout {
+		t.Fatalf("expected holdout state, got %s", got)
+	}
+	if !a.snoozeUntil.IsZero() {
+		t.Fatalf("expected manual snooze to be cleared, got %s", a.snoozeUntil)
+	}
+	select {
+	case <-a.syncCh:
+		t.Fatal("expected no sync to be queued while holdout remains active")
 	default:
 	}
 }

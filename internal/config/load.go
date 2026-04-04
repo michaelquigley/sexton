@@ -69,6 +69,11 @@ func Resolve(entry *RepoEntry, defaults *RepoDefaults, local *RepoLocalConfig) (
 		return nil, err
 	}
 
+	holdoutWindows, err := resolveHoldoutWindows(defaults.HoldoutWindows, entry.HoldoutWindows, local.HoldoutWindows)
+	if err != nil {
+		return nil, err
+	}
+
 	return &ResolvedRepo{
 		Path:                path,
 		Name:                name,
@@ -77,6 +82,7 @@ func Resolve(entry *RepoEntry, defaults *RepoDefaults, local *RepoLocalConfig) (
 		Branch:              coalesce(local.Branch, entry.Branch, defaults.Branch, "main"),
 		Remote:              coalesce(local.Remote, entry.Remote, defaults.Remote, "origin"),
 		CommitMessagePrompt: coalesce(local.CommitMessagePrompt, entry.CommitMessagePrompt, defaults.CommitMessagePrompt, DefaultCommitMessagePrompt),
+		HoldoutWindows:      holdoutWindows,
 		Hooks:               hooks,
 	}, nil
 }

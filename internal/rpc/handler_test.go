@@ -18,6 +18,7 @@ type stubController struct {
 	snoozeErr      error
 	snoozeExpires  time.Time
 	resumeErr      error
+	resumeMessage  string
 }
 
 func (s stubController) RepoStatus(string) ([]RepoInfo, error) {
@@ -32,8 +33,8 @@ func (s stubController) SnoozeRepo(string, time.Duration) (time.Time, error) {
 	return s.snoozeExpires, s.snoozeErr
 }
 
-func (s stubController) ResumeRepo(string) error {
-	return s.resumeErr
+func (s stubController) ResumeRepo(string) (string, error) {
+	return s.resumeMessage, s.resumeErr
 }
 
 func TestHandlerSyncSuccess(t *testing.T) {
@@ -124,7 +125,7 @@ func TestHandlerSnoozeFailureUsesRPCError(t *testing.T) {
 }
 
 func TestHandlerResumeSuccess(t *testing.T) {
-	h := &handler{ctrl: stubController{}}
+	h := &handler{ctrl: stubController{resumeMessage: "resumed"}}
 
 	resp, err := h.Resume(context.Background(), &sextonv1.ResumeRequest{Repo: "repo"})
 	if err != nil {
@@ -144,6 +145,25 @@ func TestHandlerResumeFailureUsesRPCError(t *testing.T) {
 	}
 	if status.Code(err) != codes.FailedPrecondition {
 		t.Fatalf("Resume() code = %v, want %v", status.Code(err), codes.FailedPrecondition)
+	}
+}
+
+func TestHandlerStatusIncludesHoldoutRemaining(t *testing.T) {
+	h := &handler{ctrl: stubController{
+		statusInfos: []RepoInfo{{
+			Name:             "notes",
+			State:            "holdout",
+			Branch:           "main",
+			HoldoutRemaining: 45*time.Minute + 500*time.Millisecond,
+		}},
+	}}
+
+	resp, err := h.Status(context.Background(), &sextonv1.StatusRequest{})
+	if err != nil {
+		t.Fatalf("Status() error = %v", err)
+	}
+	if got := resp.GetRepos()[0].GetHoldoutRemaining(); got != "45m1s" {
+		t.Fatalf("Status() holdout remaining = %q, want %q", got, "45m1s")
 	}
 }
 

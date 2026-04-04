@@ -111,6 +111,12 @@ func TestFormatStatusTable(t *testing.T) {
 			Branch:          "main",
 			SnoozeRemaining: 30 * time.Minute,
 		},
+		{
+			Name:             "backup",
+			State:            "holdout",
+			Branch:           "main",
+			HoldoutRemaining: 45 * time.Minute,
+		},
 	}
 	got := FormatStatus(statuses)
 	if !strings.Contains(got, "| notes |") {
@@ -118,6 +124,9 @@ func TestFormatStatusTable(t *testing.T) {
 	}
 	if !strings.Contains(got, "snoozed (30m0s left)") {
 		t.Errorf("expected snooze remaining, got %q", got)
+	}
+	if !strings.Contains(got, "holdout (45m0s left)") {
+		t.Errorf("expected holdout remaining, got %q", got)
 	}
 	if !strings.Contains(got, "5m ago") {
 		t.Errorf("expected human-friendly duration, got %q", got)
@@ -128,7 +137,7 @@ func TestFormatAlertWithCommitMessage(t *testing.T) {
 	event := agent.AlertEvent{
 		Severity:      "info",
 		RepoPath:      "my-notes",
-		Message:        "sync complete (abc123)",
+		Message:       "sync complete (abc123)",
 		CommitMessage: "add pane design spec and update project index",
 	}
 	got := FormatAlert(event)
@@ -156,8 +165,15 @@ func TestFormatSnoozeResponse(t *testing.T) {
 }
 
 func TestFormatResumeResponse(t *testing.T) {
-	got := FormatResumeResponse("my-notes")
+	got := FormatResumeResponse("resumed", "my-notes")
 	if got != "resumed 'my-notes'" {
+		t.Errorf("got %q", got)
+	}
+}
+
+func TestFormatResumeResponsePassesThroughCustomMessage(t *testing.T) {
+	got := FormatResumeResponse("holdout remains active until 2026-04-03T11:00:00-04:00", "my-notes")
+	if !strings.Contains(got, "holdout remains active until") {
 		t.Errorf("got %q", got)
 	}
 }

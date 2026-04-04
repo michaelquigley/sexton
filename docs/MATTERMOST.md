@@ -441,7 +441,7 @@ type CommandHandler interface {
     Status(repo string) ([]RepoStatus, error)
     Sync(repo string) error
     Snooze(repo string, duration time.Duration) (time.Time, error)
-    Resume(repo string) error
+    Resume(repo string) (string, error)
 }
 
 type RepoStatus struct {
@@ -454,10 +454,11 @@ type RepoStatus struct {
     LastChange      time.Time
     Error           string
     SnoozeRemaining time.Duration
+    HoldoutRemaining time.Duration
 }
 ```
 
-`RepoStatus` maintains parity with `rpc.RepoInfo`, including `LastChange` and `SnoozeRemaining`. Both are useful in a status table — users want to see when content last changed and how long a snooze has left.
+`RepoStatus` maintains parity with `rpc.RepoInfo`, including `LastChange`, `SnoozeRemaining`, and `HoldoutRemaining`. These are useful in a status table because users want to see when content last changed and how long any pause has left.
 
 The dispatcher function should:
 1. Accept the raw message text and a list of trigger words

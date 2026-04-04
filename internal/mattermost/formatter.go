@@ -68,7 +68,10 @@ func FormatStatus(statuses []RepoStatus) string {
 			lastChange = format.TimeAgo(s.LastChange)
 		}
 		state := s.State
-		if s.SnoozeRemaining > 0 {
+		switch {
+		case s.HoldoutRemaining > 0:
+			state = fmt.Sprintf("holdout (%s left)", s.HoldoutRemaining.Truncate(time.Second))
+		case s.SnoozeRemaining > 0:
 			state = fmt.Sprintf("snoozed (%s left)", s.SnoozeRemaining.Truncate(time.Second))
 		}
 		errStr := ""
@@ -92,8 +95,11 @@ func FormatSnoozeResponse(repo string, until time.Time) string {
 }
 
 // FormatResumeResponse formats a resume confirmation.
-func FormatResumeResponse(repo string) string {
-	return fmt.Sprintf("resumed '%s'", repo)
+func FormatResumeResponse(message, repo string) string {
+	if message == "" || message == "resumed" {
+		return fmt.Sprintf("resumed '%s'", repo)
+	}
+	return message
 }
 
 // FormatError formats an error response.

@@ -18,6 +18,7 @@ type Agent struct {
 	git     gitClient
 	llm     *llm.Client
 	alerter Alerter
+	now     func() time.Time
 
 	mu    sync.Mutex
 	state State
@@ -32,6 +33,7 @@ type Agent struct {
 	snoozeTimer   *time.Timer
 	snoozeUntil   time.Time
 	snoozePending bool
+	holdoutUntil  time.Time
 	errorDetail   string
 
 	lastSync   time.Time
@@ -65,6 +67,7 @@ func New(cfg *config.ResolvedRepo, g *git.Git) *Agent {
 		syncCh: make(chan struct{}, 1),
 		runCtx: runCtx,
 		cancel: cancel,
+		now:    time.Now,
 	}
 }
 
@@ -75,6 +78,9 @@ func (a *Agent) Wire(c *Container) error {
 }
 
 func (a *Agent) Start() error {
+	if len(a.cfg.HoldoutWindows) > 0 {
+		go a.runHoldoutScheduler()
+	}
 	go a.run()
 	return nil
 }
@@ -140,18 +146,48 @@ func (a *Agent) SnoozeRemaining() time.Duration {
 	if a.state != Snoozed {
 		return 0
 	}
-	remaining := time.Until(a.snoozeUntil)
+	remaining := a.snoozeUntil.Sub(a.now())
 	if remaining < 0 {
 		return 0
 	}
 	return remaining
 }
 
-// TriggerSync requests an immediate sync cycle. errors if the agent is snoozed.
-func (a *Agent) TriggerSync() error {
+func (a *Agent) HoldoutRemaining() time.Duration {
 	a.mu.Lock()
 	defer a.mu.Unlock()
+	if a.state != Holdout {
+		return 0
+	}
+	remaining := a.holdoutUntil.Sub(a.now())
+	if remaining < 0 {
+		return 0
+	}
+	return remaining
+}
+
+// TriggerSync requests an immediate sync cycle. errors if the agent is paused.
+func (a *Agent) TriggerSync() error {
+	a.mu.Lock()
+	now := a.now()
+	if activeHoldout, holdoutUntil := a.holdoutStatusAt(now); activeHoldout {
+		a.holdoutUntil = holdoutUntil
+		if a.state != Syncing {
+			a.state = Holdout
+		}
+		a.mu.Unlock()
+		return fmt.Errorf("agent is in holdout until '%s'", holdoutUntil.Format(time.RFC3339))
+	}
+	if a.state == Snoozed && !a.manualSnoozeActiveLocked(now) {
+		a.clearExpiredSnoozeLocked()
+		if a.errorDetail != "" {
+			a.state = Error
+		} else {
+			a.state = Watching
+		}
+	}
 	if a.state == Snoozed {
+		a.mu.Unlock()
 		return fmt.Errorf("agent is snoozed")
 	}
 	select {
@@ -159,15 +195,21 @@ func (a *Agent) TriggerSync() error {
 	default:
 		// sync already pending
 	}
+	a.mu.Unlock()
 	return nil
 }
 
 // Snooze pauses the agent for the given duration.
 func (a *Agent) Snooze(d time.Duration) (time.Time, error) {
 	a.mu.Lock()
+	now := a.now()
 	until := a.startSnoozeLocked(d)
 	if a.state == Syncing {
 		a.snoozePending = true
+	} else if activeHoldout, holdoutUntil := a.holdoutStatusAt(now); activeHoldout {
+		a.state = Holdout
+		a.holdoutUntil = holdoutUntil
+		a.snoozePending = false
 	} else {
 		a.state = Snoozed
 		a.snoozePending = false
@@ -179,26 +221,55 @@ func (a *Agent) Snooze(d time.Duration) (time.Time, error) {
 	return until, nil
 }
 
-// Resume transitions an errored or snoozed agent back to watching and triggers an immediate sync.
-func (a *Agent) Resume() error {
+// Resume clears an error or manual snooze and optionally triggers an immediate sync.
+func (a *Agent) Resume() (string, error) {
 	a.mu.Lock()
-	if a.state != Error && a.state != Snoozed && !a.snoozePending {
+	now := a.now()
+	activeHoldout, holdoutUntil := a.holdoutStatusAt(now)
+	manualSnoozed := a.state == Snoozed || a.snoozePending || a.manualSnoozeActiveLocked(now)
+	canClearError := a.errorDetail != ""
+	if !manualSnoozed && !canClearError && !activeHoldout {
+		state := a.state
 		a.mu.Unlock()
-		return fmt.Errorf("agent is not errored or snoozed (state: '%s')", a.state)
+		return "", fmt.Errorf("agent is not errored or snoozed (state: '%s')", state)
+	}
+	if activeHoldout && !manualSnoozed && !canClearError {
+		a.holdoutUntil = holdoutUntil
+		if a.state != Syncing {
+			a.state = Holdout
+		}
+		a.mu.Unlock()
+		return "", fmt.Errorf("agent is in holdout until '%s'", holdoutUntil.Format(time.RFC3339))
 	}
 	a.clearSnoozeLocked()
-	if a.state == Error || a.state == Snoozed {
+	a.errorDetail = ""
+
+	message := "resumed"
+	queueSync := false
+	switch {
+	case activeHoldout:
+		a.holdoutUntil = holdoutUntil
+		if a.state != Syncing {
+			a.state = Holdout
+		}
+		message = fmt.Sprintf("holdout remains active until %s", holdoutUntil.Format(time.RFC3339))
+	case a.state == Syncing:
+		queueSync = true
+	default:
 		a.state = Watching
-		a.errorDetail = ""
+		a.holdoutUntil = time.Time{}
+		queueSync = true
 	}
 	a.mu.Unlock()
 	dl.Infof("resumed '%s'", a.cfg.Name)
 	a.alert("info", "resumed", nil)
-	select {
-	case a.syncCh <- struct{}{}:
-	default:
+	if queueSync {
+		select {
+		case a.syncCh <- struct{}{}:
+		default:
+		}
 	}
-	return nil
+	return message, nil
 }
 
 func (a *Agent) run() {
@@ -227,15 +298,7 @@ func (a *Agent) run() {
 		case <-a.syncCh:
 			a.sync()
 		case <-snoozeCh:
-			a.mu.Lock()
-			if a.state == Snoozed {
-				a.state = Watching
-				a.snoozeTimer = nil
-				a.snoozeUntil = time.Time{}
-			}
-			a.mu.Unlock()
-			dl.Infof("snooze expired for '%s'", a.cfg.Name)
-			a.sync()
+			a.handleSnoozeExpiry()
 		}
 	}
 }
@@ -248,10 +311,26 @@ func (a *Agent) sync() {
 	}
 
 	a.mu.Lock()
+	now := a.now()
+	if activeHoldout, holdoutUntil := a.holdoutStatusAt(now); activeHoldout {
+		a.holdoutUntil = holdoutUntil
+		a.state = Holdout
+		a.mu.Unlock()
+		return
+	}
+	if a.state == Snoozed && !a.manualSnoozeActiveLocked(now) {
+		a.clearExpiredSnoozeLocked()
+		if a.errorDetail != "" {
+			a.state = Error
+		} else {
+			a.state = Watching
+		}
+	}
 	if a.state == Snoozed {
 		a.mu.Unlock()
 		return
 	}
+	a.holdoutUntil = time.Time{}
 	a.state = Syncing
 	a.mu.Unlock()
 	defer a.clearCanceledSyncState(ctx)
@@ -484,7 +563,7 @@ func (a *Agent) sync() {
 }
 
 func (a *Agent) startSnoozeLocked(d time.Duration) time.Time {
-	until := time.Now().Add(d)
+	until := a.now().Add(d)
 	a.snoozeUntil = until
 	a.resetSnoozeTimerLocked(d)
 	a.drainSyncRequestsLocked()
@@ -517,6 +596,12 @@ func (a *Agent) clearSnoozeLocked() {
 	a.snoozePending = false
 }
 
+func (a *Agent) clearExpiredSnoozeLocked() {
+	a.snoozeTimer = nil
+	a.snoozeUntil = time.Time{}
+	a.snoozePending = false
+}
+
 func (a *Agent) drainSyncRequestsLocked() {
 	for {
 		select {
@@ -530,6 +615,14 @@ func (a *Agent) drainSyncRequestsLocked() {
 func (a *Agent) pauseIfRequested() bool {
 	a.mu.Lock()
 	defer a.mu.Unlock()
+	now := a.now()
+	if activeHoldout, holdoutUntil := a.holdoutStatusAt(now); activeHoldout {
+		a.holdoutUntil = holdoutUntil
+		a.state = Holdout
+		a.snoozePending = false
+		a.drainSyncRequestsLocked()
+		return true
+	}
 	if !a.snoozePending {
 		return false
 	}
@@ -549,13 +642,14 @@ func (a *Agent) shouldAbortSync(ctx context.Context) bool {
 func (a *Agent) completeSync(sha string, commitTime time.Time) {
 	a.mu.Lock()
 	a.state = Watching
-	a.lastSync = time.Now()
+	a.lastSync = a.now()
 	if sha != "" {
 		a.lastCommit = sha
 	}
 	if !commitTime.IsZero() {
 		a.lastChange = commitTime
 	}
+	a.holdoutUntil = time.Time{}
 	a.errorDetail = ""
 	a.mu.Unlock()
 }
@@ -573,10 +667,18 @@ func (a *Agent) validateBranch(ctx context.Context) error {
 
 func (a *Agent) setError(message string, err error) {
 	detail := formatErrorDetail(message, err)
+	now := a.now()
+	activeHoldout, holdoutUntil := a.holdoutStatusAt(now)
 
 	a.mu.Lock()
 	shouldAlert := a.errorDetail != detail
-	a.state = Error
+	if activeHoldout {
+		a.state = Holdout
+		a.holdoutUntil = holdoutUntil
+	} else {
+		a.state = Error
+		a.holdoutUntil = time.Time{}
+	}
 	a.errorDetail = detail
 	a.mu.Unlock()
 
@@ -601,7 +703,7 @@ func (a *Agent) alert(severity, message string, err error) {
 		RepoPath:  a.cfg.Name,
 		Message:   message,
 		Error:     err,
-		Timestamp: time.Now(),
+		Timestamp: a.now(),
 	})
 }
 
@@ -618,7 +720,7 @@ func (a *Agent) alertWithFiles(severity, message string, status *git.Status, com
 		Severity:      severity,
 		RepoPath:      a.cfg.Name,
 		Message:       message,
-		Timestamp:     time.Now(),
+		Timestamp:     a.now(),
 		Files:         files,
 		CommitMessage: commitMessage,
 	})
@@ -689,4 +791,152 @@ func (a *Agent) clearCanceledSyncState(ctx context.Context) {
 	if a.state == Syncing {
 		a.state = Watching
 	}
+}
+
+func (a *Agent) runHoldoutScheduler() {
+	for {
+		next := a.nextHoldoutTransitionAfter(a.now())
+		if next.IsZero() {
+			return
+		}
+
+		wait := time.Until(next)
+		if wait < 0 {
+			wait = 0
+		}
+
+		timer := time.NewTimer(wait)
+		select {
+		case <-a.stopCh:
+			if !timer.Stop() {
+				select {
+				case <-timer.C:
+				default:
+				}
+			}
+			return
+		case <-timer.C:
+			a.handleHoldoutTransition()
+		}
+	}
+}
+
+func (a *Agent) handleHoldoutTransition() {
+	now := a.now()
+	activeHoldout, holdoutUntil := a.holdoutStatusAt(now)
+
+	a.mu.Lock()
+	previousState := a.state
+	queueSync := false
+	if activeHoldout {
+		a.holdoutUntil = holdoutUntil
+		if a.state != Syncing {
+			a.state = Holdout
+			a.drainSyncRequestsLocked()
+		}
+	} else {
+		a.holdoutUntil = time.Time{}
+		if a.state == Holdout {
+			switch {
+			case a.manualSnoozeActiveLocked(now):
+				a.state = Snoozed
+			case a.errorDetail != "":
+				a.state = Error
+				queueSync = true
+			default:
+				a.state = Watching
+				queueSync = true
+			}
+		}
+	}
+	a.mu.Unlock()
+
+	switch {
+	case activeHoldout && previousState != Holdout:
+		dl.Infof("holdout started for '%s' until %s", a.cfg.Name, holdoutUntil.Format(time.RFC3339))
+	case !activeHoldout && previousState == Holdout:
+		dl.Infof("holdout ended for '%s'", a.cfg.Name)
+	}
+
+	if queueSync {
+		select {
+		case a.syncCh <- struct{}{}:
+		default:
+		}
+	}
+}
+
+func (a *Agent) handleSnoozeExpiry() {
+	now := a.now()
+	activeHoldout, holdoutUntil := a.holdoutStatusAt(now)
+
+	a.mu.Lock()
+	a.clearExpiredSnoozeLocked()
+	queueSync := false
+	if activeHoldout {
+		a.holdoutUntil = holdoutUntil
+		if a.state != Syncing {
+			a.state = Holdout
+		}
+	} else if a.state == Snoozed {
+		if a.errorDetail != "" {
+			a.state = Error
+		} else {
+			a.state = Watching
+			queueSync = true
+		}
+	}
+	a.mu.Unlock()
+
+	dl.Infof("snooze expired for '%s'", a.cfg.Name)
+	if queueSync {
+		select {
+		case a.syncCh <- struct{}{}:
+		default:
+		}
+	}
+}
+
+func (a *Agent) manualSnoozeActiveLocked(now time.Time) bool {
+	return !a.snoozeUntil.IsZero() && now.Before(a.snoozeUntil)
+}
+
+func (a *Agent) holdoutStatusAt(now time.Time) (bool, time.Time) {
+	if len(a.cfg.HoldoutWindows) == 0 {
+		return false, time.Time{}
+	}
+
+	now = now.In(time.Local)
+	dayStart := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.Local)
+	for _, window := range a.cfg.HoldoutWindows {
+		start := dayStart.Add(time.Duration(window.StartMinute) * time.Minute)
+		end := dayStart.Add(time.Duration(window.EndMinute) * time.Minute)
+		if !now.Before(start) && now.Before(end) {
+			return true, end
+		}
+	}
+
+	return false, time.Time{}
+}
+
+func (a *Agent) nextHoldoutTransitionAfter(now time.Time) time.Time {
+	if len(a.cfg.HoldoutWindows) == 0 {
+		return time.Time{}
+	}
+
+	if activeHoldout, holdoutUntil := a.holdoutStatusAt(now); activeHoldout {
+		return holdoutUntil
+	}
+
+	now = now.In(time.Local)
+	dayStart := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.Local)
+	for _, window := range a.cfg.HoldoutWindows {
+		start := dayStart.Add(time.Duration(window.StartMinute) * time.Minute)
+		if start.After(now) {
+			return start
+		}
+	}
+
+	nextDay := dayStart.AddDate(0, 0, 1)
+	return nextDay.Add(time.Duration(a.cfg.HoldoutWindows[0].StartMinute) * time.Minute)
 }

@@ -11,20 +11,21 @@ type CommandHandler interface {
 	Status(repo string) ([]RepoStatus, error)
 	Sync(repo string) error
 	Snooze(repo string, duration time.Duration) (time.Time, error)
-	Resume(repo string) error
+	Resume(repo string) (string, error)
 }
 
 // RepoStatus holds status information for a single repo.
 type RepoStatus struct {
-	Name            string
-	Path            string
-	State           string
-	Branch          string
-	LastSync        time.Time
-	LastCommit      string
-	LastChange      time.Time
-	Error           string
-	SnoozeRemaining time.Duration
+	Name             string
+	Path             string
+	State            string
+	Branch           string
+	LastSync         time.Time
+	LastCommit       string
+	LastChange       time.Time
+	Error            string
+	SnoozeRemaining  time.Duration
+	HoldoutRemaining time.Duration
 }
 
 // Dispatch parses pre-stripped command text (trigger word or @mentions already
@@ -118,8 +119,9 @@ func dispatchResume(args []string, handler CommandHandler) string {
 	if len(args) == 0 {
 		return "resume requires a repo argument"
 	}
-	if err := handler.Resume(args[0]); err != nil {
+	message, err := handler.Resume(args[0])
+	if err != nil {
 		return FormatError(err)
 	}
-	return FormatResumeResponse(args[0])
+	return FormatResumeResponse(message, args[0])
 }
