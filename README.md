@@ -18,7 +18,9 @@ flowchart TD
     pre_commit --> commit[Stage & Commit]
     commit --> post_commit[post_commit hooks]
     post_commit --> pull[Pull --rebase]
-    pull --> post_pull[post_pull hooks]
+    pull --> pulled{Pulled changes?}
+    pulled -- yes --> post_pull[post_pull hooks]
+    pulled -- no --> pre_push[pre_push hooks]
     post_pull --> pre_push[pre_push hooks]
     pre_push --> push[Push]
     push --> post_sync[post_sync hooks]
@@ -27,8 +29,8 @@ flowchart TD
     pull -- conflict --> error([Error])
 ```
 
-- **Clean tree**: pull, run post_pull/pre_push/post_sync hooks, push, sleep
-- **Dirty tree**: run pre_commit hooks, stage all, generate a commit message via LLM, commit, run post_commit hooks, pull --rebase, run post_pull/pre_push hooks, push, run post_sync hooks
+- **Clean tree**: pull, run post_pull hooks only if the pull changed the repo, run pre_push/post_sync hooks, push, sleep
+- **Dirty tree**: run pre_commit hooks, stage all, generate a commit message via LLM, commit, run post_commit hooks, pull --rebase, run post_pull hooks only if the pull changed the repo, run pre_push hooks, push, run post_sync hooks
 - **Conflict**: abort the rebase, mark the repo errored, alert the user
 - **Hook failure**: mark the repo errored, alert the user
 
@@ -120,7 +122,7 @@ hooks:
 | `holdout_windows` | global, repo | -- | Daily local-time windows where sync is paused; each entry is `{start,end}` in `HH:MM` 24-hour format |
 | `hooks.pre_commit` | global, repo | -- | Commands to run before staging and committing |
 | `hooks.post_commit` | global, repo | -- | Commands to run after a successful commit |
-| `hooks.post_pull` | global, repo | -- | Commands to run after a successful pull |
+| `hooks.post_pull` | global, repo | -- | Commands to run after a pull changes the local checkout |
 | `hooks.pre_push` | global, repo | -- | Commands to run before pushing |
 | `hooks.post_sync` | global, repo | -- | Commands to run after a successful sync cycle |
 
@@ -144,7 +146,7 @@ Hooks run shell commands at phase boundaries in the sync loop. Each hook runs wi
 |---|---|
 | `pre_commit` | After dirty check, before staging (dirty cycles only) |
 | `post_commit` | After successful commit (dirty cycles only) |
-| `post_pull` | After successful pull (every cycle) |
+| `post_pull` | After a pull changes the local checkout |
 | `pre_push` | Before push |
 | `post_sync` | After entire sync cycle succeeds (every cycle) |
 

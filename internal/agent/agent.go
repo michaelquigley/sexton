@@ -435,7 +435,7 @@ func (a *Agent) sync() {
 		}
 	}
 
-	_, err = a.git.Pull(ctx, a.cfg.Remote, a.cfg.Branch)
+	pulled, err := a.git.Pull(ctx, a.cfg.Remote, a.cfg.Branch)
 	if err != nil {
 		if a.syncCanceled(ctx, err) {
 			return
@@ -471,15 +471,17 @@ func (a *Agent) sync() {
 		return
 	}
 
-	if err := a.runHooks(ctx, "post_pull", a.cfg.Hooks.PostPull); err != nil {
-		if a.syncCanceled(ctx, err) {
+	if pulled {
+		if err := a.runHooks(ctx, "post_pull", a.cfg.Hooks.PostPull); err != nil {
+			if a.syncCanceled(ctx, err) {
+				return
+			}
+			a.setError("post_pull hook failed", err)
 			return
 		}
-		a.setError("post_pull hook failed", err)
-		return
-	}
-	if a.shouldAbortSync(ctx) {
-		return
+		if a.shouldAbortSync(ctx) {
+			return
+		}
 	}
 
 	if err := a.runHooks(ctx, "pre_push", a.cfg.Hooks.PrePush); err != nil {

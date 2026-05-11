@@ -17,6 +17,10 @@ case "$*" in
   "status --porcelain")
     exit 0
     ;;
+  "rev-parse HEAD")
+    echo "abc123"
+    exit 0
+    ;;
   "pull --rebase origin main")
     echo "Already up to date."
     exit 0
@@ -39,14 +43,92 @@ esac
 	}
 
 	logLines := readGitLog(t, gitLog)
-	if len(logLines) != 2 {
-		t.Fatalf("expected two git invocations, got %d", len(logLines))
+	if len(logLines) != 4 {
+		t.Fatalf("expected four git invocations, got %d", len(logLines))
 	}
 	if logLines[0] != "status --porcelain" {
 		t.Fatalf("unexpected dirty-check args: %q", logLines[0])
 	}
-	if logLines[1] != "pull --rebase origin main" {
-		t.Fatalf("unexpected pull args: %q", logLines[1])
+	if logLines[1] != "rev-parse HEAD" {
+		t.Fatalf("unexpected pre-pull HEAD args: %q", logLines[1])
+	}
+	if logLines[2] != "pull --rebase origin main" {
+		t.Fatalf("unexpected pull args: %q", logLines[2])
+	}
+	if logLines[3] != "rev-parse HEAD" {
+		t.Fatalf("unexpected post-pull HEAD args: %q", logLines[3])
+	}
+}
+
+func TestPullReportsChangesWhenHeadChanges(t *testing.T) {
+	gitLog := filepath.Join(t.TempDir(), "git.log")
+	installFakeGit(t, gitLog, `#!/bin/sh
+printf "%s\n" "$*" >> "$GIT_LOG"
+case "$*" in
+  "status --porcelain")
+    exit 0
+    ;;
+  "rev-parse HEAD")
+    count="$(grep -c "rev-parse HEAD" "$GIT_LOG")"
+    if [ "$count" -eq 1 ]; then
+      echo "abc123"
+    else
+      echo "def456"
+    fi
+    exit 0
+    ;;
+  "pull --rebase origin main")
+    echo "Fast-forward"
+    exit 0
+    ;;
+  *)
+    echo "unexpected args: $*" >&2
+    exit 99
+    ;;
+esac
+`)
+
+	g := &Git{root: t.TempDir()}
+
+	pulled, err := g.Pull(context.Background(), "origin", "main")
+	if err != nil {
+		t.Fatalf("expected pull to succeed, got %v", err)
+	}
+	if !pulled {
+		t.Fatal("expected changed HEAD to report pulled changes")
+	}
+}
+
+func TestPullTreatsCurrentBranchUpToDateAsNoChangeFallback(t *testing.T) {
+	gitLog := filepath.Join(t.TempDir(), "git.log")
+	installFakeGit(t, gitLog, `#!/bin/sh
+printf "%s\n" "$*" >> "$GIT_LOG"
+case "$*" in
+  "status --porcelain")
+    exit 0
+    ;;
+  "rev-parse HEAD")
+    exit 1
+    ;;
+  "pull --rebase origin main")
+    echo "Current branch main is up to date."
+    exit 0
+    ;;
+  *)
+    echo "unexpected args: $*" >&2
+    exit 99
+    ;;
+esac
+`)
+
+	g := &Git{root: t.TempDir()}
+
+	pulled, err := g.Pull(context.Background(), "origin", "main")
+	if err != nil {
+		t.Fatalf("expected pull to succeed, got %v", err)
+	}
+	if pulled {
+		t.Fatal("expected current-branch-up-to-date pull to report no changes")
 	}
 }
 
@@ -86,6 +168,10 @@ func TestPullUnknownRemoteReturnsErrNoRemote(t *testing.T) {
 printf "%s\n" "$*" >> "$GIT_LOG"
 case "$*" in
   "status --porcelain")
+    exit 0
+    ;;
+  "rev-parse HEAD")
+    echo "abc123"
     exit 0
     ;;
   "pull --rebase origin main")

@@ -61,6 +61,7 @@ func (g *Git) Pull(ctx context.Context, remote, branch string) (pulled bool, err
 		return false, ErrDirtyWorkingTree
 	}
 
+	before, beforeErr := g.head(ctx)
 	out, err := g.runCtx(ctx, "pull", "--rebase", remote, branch)
 	if err != nil {
 		if isConflictOutput(out) {
@@ -72,7 +73,15 @@ func (g *Git) Pull(ctx context.Context, remote, branch string) (pulled bool, err
 		return false, fmt.Errorf("%w: %s", ErrPullFailed, strings.TrimSpace(out))
 	}
 
-	pulled = !strings.Contains(out, "Already up to date")
+	if beforeErr == nil {
+		after, err := g.head(ctx)
+		if err != nil {
+			return false, err
+		}
+		return before != after, nil
+	}
+
+	pulled = !isAlreadyUpToDateOutput(out)
 	return pulled, nil
 }
 
@@ -128,6 +137,14 @@ func (g *Git) ShortHEAD(ctx context.Context) (string, error) {
 	return strings.TrimSpace(out), nil
 }
 
+func (g *Git) head(ctx context.Context) (string, error) {
+	out, err := g.runCtx(ctx, "rev-parse", "HEAD")
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(out), nil
+}
+
 // CommitTime returns the author timestamp of HEAD.
 func (g *Git) CommitTime(ctx context.Context) (time.Time, error) {
 	out, err := g.runCtx(ctx, "log", "-1", "--format=%aI")
@@ -172,4 +189,10 @@ func isNoRemoteOutput(out string) bool {
 		strings.Contains(lower, "no configured push destination") ||
 		strings.Contains(lower, "no such remote") ||
 		strings.Contains(lower, "does not appear to be a git repository")
+}
+
+func isAlreadyUpToDateOutput(out string) bool {
+	lower := strings.ToLower(out)
+	return strings.Contains(lower, "already up to date") ||
+		(strings.Contains(lower, "current branch") && strings.Contains(lower, "is up to date"))
 }

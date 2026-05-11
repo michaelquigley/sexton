@@ -26,6 +26,7 @@ type stubGit struct {
 	stageErr       error
 	commitErr      error
 	pullErr        error
+	pulled         bool
 	pushErr        error
 	rebaseAbortErr error
 	rebaseAborts   int
@@ -77,7 +78,7 @@ func (g *stubGit) Pull(ctx context.Context, _ string, _ string) (bool, error) {
 	if g.onPull != nil {
 		g.onPull(ctx)
 	}
-	return false, g.pullErr
+	return g.pulled, g.pullErr
 }
 func (g *stubGit) Push(ctx context.Context, _ string, _ string) error {
 	g.pushCalls++
@@ -189,6 +190,40 @@ func TestSyncRepeatedSameErrorDoesNotReAlert(t *testing.T) {
 
 	if len(alerts.events) != 1 {
 		t.Fatalf("expected one deduplicated alert, got %d", len(alerts.events))
+	}
+}
+
+func TestSyncSkipsPostPullHooksWhenPullIsUpToDate(t *testing.T) {
+	dir := t.TempDir()
+	marker := filepath.Join(dir, "post-pull")
+	g := &stubGit{shortHEAD: "abc123"}
+	a := newAgentForTest(g, nil)
+	a.cfg.Path = dir
+	a.cfg.Hooks.PostPull = []*config.ResolvedHook{
+		{Command: "touch " + marker, Timeout: 10 * time.Second},
+	}
+
+	a.sync()
+
+	if _, err := os.Stat(marker); !os.IsNotExist(err) {
+		t.Fatalf("expected post_pull hook to be skipped, stat error = %v", err)
+	}
+}
+
+func TestSyncRunsPostPullHooksWhenPullChangesRepo(t *testing.T) {
+	dir := t.TempDir()
+	marker := filepath.Join(dir, "post-pull")
+	g := &stubGit{pulled: true, shortHEAD: "abc123"}
+	a := newAgentForTest(g, nil)
+	a.cfg.Path = dir
+	a.cfg.Hooks.PostPull = []*config.ResolvedHook{
+		{Command: "touch " + marker, Timeout: 10 * time.Second},
+	}
+
+	a.sync()
+
+	if _, err := os.Stat(marker); err != nil {
+		t.Fatalf("expected post_pull hook to run, stat error = %v", err)
 	}
 }
 

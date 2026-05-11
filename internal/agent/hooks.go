@@ -62,7 +62,7 @@ func (a *Agent) runHooks(ctx context.Context, phase string, hooks []*config.Reso
 
 		if err != nil {
 			if hookErr != nil {
-				return fmt.Errorf("%s hook failed: command=%q: %w", phase, hook.Command, hookErr)
+				return fmt.Errorf("%s hook failed: command=%q timeout=%s: %w", phase, hook.Command, hook.Timeout, hookErr)
 			}
 			exitCode := -1
 			if exitErr, ok := err.(*exec.ExitError); ok {
