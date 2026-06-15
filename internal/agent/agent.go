@@ -823,13 +823,23 @@ func (a *Agent) runHoldoutScheduler() {
 	}
 }
 
+// handleHoldoutTransition is invoked by the holdout scheduler at each window
+// boundary to move the agent into or out of the Holdout state. it deliberately
+// does NOT trigger a sync when a window ends. holdout exists to avoid touching a
+// remote during a known-bad window (e.g. a nightly maintenance restart), so
+// poking the remote the instant the window lifts defeats the purpose — and
+// across a fleet of agents it stampedes every one of them against the still-
+// recovering remote at the same second. instead, recovery is left to the next
+// regular poll, which gives up to one poll interval of grace for the remote to
+// come back and naturally staggers retries by each agent's ticker phase. the
+// immediate-sync-on-exit behavior is intentionally kept for snooze and Resume,
+// which are user-initiated and want responsiveness.
 func (a *Agent) handleHoldoutTransition() {
 	now := a.now()
 	activeHoldout, holdoutUntil := a.holdoutStatusAt(now)
 
 	a.mu.Lock()
 	previousState := a.state
-	queueSync := false
 	if activeHoldout {
 		a.holdoutUntil = holdoutUntil
 		if a.state != Syncing {
@@ -844,10 +854,8 @@ func (a *Agent) handleHoldoutTransition() {
 				a.state = Snoozed
 			case a.errorDetail != "":
 				a.state = Error
-				queueSync = true
 			default:
 				a.state = Watching
-				queueSync = true
 			}
 		}
 	}
@@ -858,13 +866,6 @@ func (a *Agent) handleHoldoutTransition() {
 		dl.Infof("holdout started for '%s' until %s", a.cfg.Name, holdoutUntil.Format(time.RFC3339))
 	case !activeHoldout && previousState == Holdout:
 		dl.Infof("holdout ended for '%s'", a.cfg.Name)
-	}
-
-	if queueSync {
-		select {
-		case a.syncCh <- struct{}{}:
-		default:
-		}
 	}
 }
 

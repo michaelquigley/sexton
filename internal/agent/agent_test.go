@@ -606,6 +606,79 @@ func TestResumeDuringHoldoutClearsManualSnoozeWithoutBypassing(t *testing.T) {
 	}
 }
 
+func TestHandleHoldoutTransitionDoesNotQueueSyncOnExit(t *testing.T) {
+	now := time.Date(2026, time.April, 3, 11, 0, 0, 0, time.Local)
+	windows := []*config.ResolvedHoldoutWindow{
+		{StartMinute: 10 * 60, EndMinute: 11 * 60},
+	}
+
+	// holdout ends with a pending error -> Error, but no immediate sync queued
+	a := newAgentForTest(&stubGit{}, nil)
+	a.now = func() time.Time { return now }
+	a.cfg.HoldoutWindows = windows
+	a.state = Holdout
+	a.errorDetail = "pull failed: ssh: connect to host"
+
+	a.handleHoldoutTransition()
+
+	if got := a.State(); got != Error {
+		t.Fatalf("expected error state after holdout ends with pending error, got %s", got)
+	}
+	select {
+	case <-a.syncCh:
+		t.Fatal("expected no sync to be queued when holdout ends (error case)")
+	default:
+	}
+
+	// holdout ends cleanly -> Watching, but no immediate sync queued
+	b := newAgentForTest(&stubGit{}, nil)
+	b.now = func() time.Time { return now }
+	b.cfg.HoldoutWindows = windows
+	b.state = Holdout
+
+	b.handleHoldoutTransition()
+
+	if got := b.State(); got != Watching {
+		t.Fatalf("expected watching state after holdout ends cleanly, got %s", got)
+	}
+	select {
+	case <-b.syncCh:
+		t.Fatal("expected no sync to be queued when holdout ends (clean case)")
+	default:
+	}
+}
+
+func TestHoldoutStatusCoversMidnightWrap(t *testing.T) {
+	a := newAgentForTest(&stubGit{}, nil)
+	// resolved form of a 23:55-00:10 window that wraps midnight
+	a.cfg.HoldoutWindows = []*config.ResolvedHoldoutWindow{
+		{StartMinute: 0, EndMinute: 10},
+		{StartMinute: 23*60 + 55, EndMinute: 24 * 60},
+	}
+
+	at := func(h, m, s int) time.Time {
+		return time.Date(2026, time.April, 3, h, m, s, 0, time.Local)
+	}
+	cases := []struct {
+		name   string
+		now    time.Time
+		active bool
+	}{
+		{"23:54 before window", at(23, 54, 0), false},
+		{"23:55 window start", at(23, 55, 0), true},
+		{"23:59 in window", at(23, 59, 0), true},
+		{"00:00 midnight", at(0, 0, 0), true},
+		{"00:05 in window", at(0, 5, 0), true},
+		{"00:09:59 last second", at(0, 9, 59), true},
+		{"00:10 window end", at(0, 10, 0), false},
+	}
+	for _, tc := range cases {
+		if got, _ := a.holdoutStatusAt(tc.now); got != tc.active {
+			t.Fatalf("%s: holdoutStatusAt active = %v, want %v", tc.name, got, tc.active)
+		}
+	}
+}
+
 func TestStopCancelsSyncBlockedInDirtyCheck(t *testing.T) {
 	reachedDirty := make(chan struct{})
 
