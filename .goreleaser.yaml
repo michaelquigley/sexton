@@ -1,8 +1,19 @@
+version: 2
+
 project_name: sexton
 
 builds:
   - main: ./cmd/sexton
     binary: sexton
+    # sexton is a Unix daemon: its control plane is a Unix-domain socket and its
+    # hook runner uses Setpgid/Kill process groups, neither of which exist on
+    # Windows. only linux and darwin are supported build targets.
+    goos:
+      - linux
+      - darwin
+    goarch:
+      - amd64
+      - arm64
     env:
       - CGO_ENABLED=0
     ldflags:
