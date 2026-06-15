@@ -3,6 +3,16 @@ project_name: sexton
 builds:
   - main: ./cmd/sexton
     binary: sexton
+    env:
+      - CGO_ENABLED=0
+    ldflags:
+      - -s -w
+      - -X github.com/michaelquigley/push/build.Version={{.Tag}}
+      - -X github.com/michaelquigley/push/build.Hash={{.FullCommit}}
+      - -X github.com/michaelquigley/push/build.Date={{.Date}}
+      - -X github.com/michaelquigley/push/build.Branch={{.Branch}}
+      - -X github.com/michaelquigley/push/build.CGO=0
+      - -X "github.com/michaelquigley/push/build.Builder=goreleaser"
 
 changelog:
   sort: asc

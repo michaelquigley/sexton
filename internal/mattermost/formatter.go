@@ -5,6 +5,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/michaelquigley/push/build"
 	"github.com/michaelquigley/sexton/internal/agent"
 	"github.com/michaelquigley/sexton/internal/format"
 )
@@ -81,6 +82,7 @@ func FormatStatus(statuses []RepoStatus) string {
 		fmt.Fprintf(&b, "| %s | %s | %s | %s | %s | %s |\n",
 			s.Name, state, s.Branch, lastSync, lastChange, errStr)
 	}
+	fmt.Fprintf(&b, "\n_sexton %s_", build.String())
 	return b.String()
 }
 

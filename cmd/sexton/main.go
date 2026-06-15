@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/michaelquigley/df/dl"
+	"github.com/michaelquigley/push/build"
 	"github.com/spf13/cobra"
 )
 
@@ -25,6 +26,7 @@ func init() {
 	dl.Init(dl.DefaultOptions().SetTrimPrefix("github.com/michaelquigley/").SetLevel(slog.LevelInfo))
 	rootCmd.PersistentFlags().BoolVarP(&verbose, "verbose", "v", false, "enable verbose output")
 	rootCmd.AddCommand(agentCmd)
+	rootCmd.AddCommand(build.NewVersionCmd("sexton"))
 }
 
 func main() {

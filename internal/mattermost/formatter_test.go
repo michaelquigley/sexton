@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/michaelquigley/push/build"
 	"github.com/michaelquigley/sexton/internal/agent"
 )
 
@@ -130,6 +131,9 @@ func TestFormatStatusTable(t *testing.T) {
 	}
 	if !strings.Contains(got, "5m ago") {
 		t.Errorf("expected human-friendly duration, got %q", got)
+	}
+	if !strings.Contains(got, build.String()) {
+		t.Errorf("expected version footer %q, got %q", build.String(), got)
 	}
 }
 

@@ -8,6 +8,8 @@ import (
 	"time"
 
 	"github.com/michaelquigley/df/da"
+	"github.com/michaelquigley/df/dl"
+	"github.com/michaelquigley/push/build"
 	"github.com/michaelquigley/sexton/internal/agent"
 	"github.com/michaelquigley/sexton/internal/config"
 	"github.com/michaelquigley/sexton/internal/mattermost"
@@ -36,6 +38,8 @@ func init() {
 }
 
 func runAgent(_ *cobra.Command, _ []string) error {
+	dl.Infof("starting sexton %s", build.String())
+
 	cfg, err := config.Load(agentConfigPath)
 	if err != nil {
 		return err

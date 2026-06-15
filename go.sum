@@ -19,6 +19,10 @@ github.com/inconshreveable/mousetrap v1.1.0 h1:wN+x4NVGpMsO7ErUn/mUI3vEoE6Jt13X2
 github.com/inconshreveable/mousetrap v1.1.0/go.mod h1:vpF70FUmC8bwa3OWnCshd2FqLfsEA9PFc4w1p2J65bw=
 github.com/michaelquigley/df v0.3.11 h1:CLO6MqhnEfmuvHjtif/ZVOHbuyrR1KrT9B48/HznbLY=
 github.com/michaelquigley/df v0.3.11/go.mod h1:Ym3uLqdbI6DxhqzLLtAzQ2ry7KfPKCjfXEgoOL23xfI=
+github.com/michaelquigley/figlet v0.1.0 h1:GXhiuV2uGxAgZL0xz/9ftdobgt00bLvFDDc1R0A2OV8=
+github.com/michaelquigley/figlet v0.1.0/go.mod h1:o01j/eykadr5SKE51qSYuvQ1n9AftzHtGuaAEK8252A=
+github.com/michaelquigley/push v0.2.1 h1:yz0O1yMTMNQGrrZCypD0pczbQUWXItQr76sQHUZD5YM=
+github.com/michaelquigley/push v0.2.1/go.mod h1:WyBvcNvx6LSOovnmw47I8wBT3i1gQWqxHlZ6JipeZkk=
 github.com/pmezard/go-difflib v1.0.0 h1:4DBwDE0NGyQoBHbLQYPwSUPoCMWR5BEzIk/f1lZbAQM=
 github.com/pmezard/go-difflib v1.0.0/go.mod h1:iKH77koFhYxTK1pcRnkKkqfTogsbg7gZNVY4sRDYZ/4=
 github.com/russross/blackfriday/v2 v2.1.0/go.mod h1:+Rmxgy9KzJVeS9/2gXHxylqXiyQDYRxCVz55jmeOWTM=
