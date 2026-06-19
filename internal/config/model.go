@@ -33,6 +33,7 @@ type RepoDefaults struct {
 	PollInterval        string
 	Branch              string
 	Remote              string
+	SSHKey              string
 	CommitMessagePrompt string
 	HoldoutWindows      []*HoldoutWindowEntry
 	Hooks               *HooksConfig
@@ -44,6 +45,7 @@ type RepoEntry struct {
 	PollInterval        string
 	Branch              string
 	Remote              string
+	SSHKey              string
 	CommitMessagePrompt string
 	HoldoutWindows      []*HoldoutWindowEntry
 	Hooks               *HooksConfig
@@ -75,6 +77,7 @@ type RepoLocalConfig struct {
 	PollInterval        string
 	Branch              string
 	Remote              string
+	SSHKey              string
 	CommitMessagePrompt string
 	HoldoutWindows      []*HoldoutWindowEntry
 	Hooks               *HooksConfig
@@ -107,6 +110,7 @@ type ResolvedRepo struct {
 	PollInterval        time.Duration
 	Branch              string
 	Remote              string
+	SSHKey              string
 	CommitMessagePrompt string
 	HoldoutWindows      []*ResolvedHoldoutWindow
 	Hooks               *ResolvedHooks

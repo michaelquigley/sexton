@@ -112,7 +112,7 @@ protoc --go_out=. --go_opt=paths=source_relative \
 - **Repo-local**: `.sexton.yaml` in repo root (overrides global)
 - **Cascade**: repo-local > global > built-in defaults
 - **Control socket**: `~/.config/sexton/sexton.sock` (gRPC control plane)
-- **Per repo**: poll interval, branch/remote, commit-message prompt, lifecycle hooks, and daily holdout windows are configurable; the top-level `alerts` list selects `log` and/or `mattermost`. config binds via `df/dd`, so types use `dd:` struct tags (e.g. `dd:",+required"`), never `yaml:` tags. see `README.md` for the full field reference.
+- **Per repo**: poll interval, branch/remote, `ssh_key`, commit-message prompt, lifecycle hooks, and daily holdout windows are configurable; the top-level `alerts` list selects `log` and/or `mattermost`. an `ssh_key` is injected as `GIT_SSH_COMMAND=ssh -i <key> -o IdentitiesOnly=yes` so git authenticates without an `ssh-agent` (enables headless `systemctl --user` operation). config binds via `df/dd`, so types use `dd:` struct tags (e.g. `dd:",+required"`), never `yaml:` tags. see `README.md` for the full field reference.
 
 ## Spec
 

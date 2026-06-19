@@ -65,6 +65,7 @@ defaults:
   poll_interval: 30s
   branch: main
   remote: origin
+  ssh_key: ~/.ssh/sexton_deploy
   holdout_windows:
     - start: "02:00"
       end: "02:30"
@@ -118,6 +119,7 @@ hooks:
 | `poll_interval` | global, repo | `30s` | Duration between poll cycles |
 | `branch` | global, repo | `main` | Branch Sexton requires the repo to be checked out on before syncing |
 | `remote` | global, repo | `origin` | Git remote Sexton explicitly pulls from and pushes to |
+| `ssh_key` | global, repo | -- | Path to a passphrase-less private key git uses for this repo's SSH remote, injected via `GIT_SSH_COMMAND` with `IdentitiesOnly=yes`. Lets the agent sync without a running `ssh-agent`; `~` and `$ENV` are expanded |
 | `commit_message_prompt` | global, repo | (built-in) | System prompt for LLM commit summarization |
 | `holdout_windows` | global, repo | -- | Daily local-time windows where sync is paused; each entry is `{start,end}` in `HH:MM` 24-hour format |
 | `hooks.pre_commit` | global, repo | -- | Commands to run before staging and committing |
@@ -194,6 +196,35 @@ sexton resume grimoire
 `resume` is still useful for clearing a snooze or forcing an immediate retry for an errored repo, but normal recovery no longer depends on it.
 
 If a configured holdout is active, `sync` does not bypass it and `resume` only clears a manual snooze or stored error; the repo remains in `holdout` until the window ends.
+
+## Running as a user service
+
+Sexton runs in the foreground, which makes it a natural fit for a `systemd` user service so it can keep syncing on a host with no logged-in terminal. Pair it with `ssh_key` (above) so git authenticates without your interactive `ssh-agent`.
+
+```ini
+# ~/.config/systemd/user/sexton.service
+[Unit]
+Description=sexton git repository sync agent
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+ExecStart=%h/go/bin/sexton agent --config %h/.config/sexton/config.yaml
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=default.target
+```
+
+```bash
+loginctl enable-linger "$USER"        # keep the service running without an active login session
+systemctl --user daemon-reload
+systemctl --user enable --now sexton
+journalctl --user -u sexton -f        # follow the logs
+```
+
+The key named by `ssh_key` must be passphrase-less (a dedicated deploy key) with `600` permissions: a user service has no agent to unlock it and no terminal to prompt.
 
 ## Repo states
 

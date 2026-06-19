@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+FEATURE: New per-repo `ssh_key` config points git at a specific private key via `GIT_SSH_COMMAND` (with `IdentitiesOnly=yes`), so sexton can sync SSH remotes without a running `ssh-agent` — enabling headless operation under a `systemctl --user` service. The key must be passphrase-less.
+
 ## v0.1.0
 
 FEATURE: New `sexton version` subcommand reports build metadata — version, commit, build date, and branch — using the `github.com/michaelquigley/push` build package, with release binaries stamped via goreleaser. The running build is also surfaced in the agent startup log and in the Mattermost `status` output, so it is easy to confirm which build each agent across a fleet is running.

@@ -4,21 +4,40 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"os"
 	"os/exec"
 	"strings"
 	"time"
 )
 
 type Git struct {
-	root string
+	root       string
+	sshCommand string
 }
 
-func New(root string) *Git {
+func New(root, sshKey string) *Git {
 	g := &Git{root: root}
 	if !g.IsRepo() {
 		return nil
 	}
+	if sshKey != "" {
+		g.sshCommand = buildSSHCommand(sshKey)
+	}
 	return g
+}
+
+// buildSSHCommand builds a GIT_SSH_COMMAND value that authenticates git with a
+// specific private key and offers only that key, so git never falls back to a
+// running ssh-agent. the key path is shell-quoted because git parses
+// GIT_SSH_COMMAND with sh-style word splitting.
+func buildSSHCommand(keyPath string) string {
+	return fmt.Sprintf("ssh -i %s -o IdentitiesOnly=yes", shellQuote(keyPath))
+}
+
+// shellQuote wraps a value in single quotes for safe sh-style parsing, escaping
+// any embedded single quotes.
+func shellQuote(s string) string {
+	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
 }
 
 func (g *Git) IsRepo() bool {
@@ -161,6 +180,9 @@ func (g *Git) run(args ...string) (string, error) {
 func (g *Git) runCtx(ctx context.Context, args ...string) (string, error) {
 	cmd := exec.CommandContext(ctx, "git", args...)
 	cmd.Dir = g.root
+	if g.sshCommand != "" {
+		cmd.Env = append(os.Environ(), "GIT_SSH_COMMAND="+g.sshCommand)
+	}
 
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout

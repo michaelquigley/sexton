@@ -2,6 +2,7 @@ package agent
 
 import (
 	"fmt"
+	"os"
 
 	"github.com/michaelquigley/df/dl"
 	"github.com/michaelquigley/sexton/internal/config"
@@ -47,7 +48,13 @@ func NewContainer(cfg *config.GlobalConfig) (*Container, error) {
 			continue
 		}
 
-		g := git.New(resolved.Path)
+		if resolved.SSHKey != "" {
+			if _, err := os.Stat(resolved.SSHKey); err != nil {
+				dl.Warnf("ssh key '%s' for repo '%s' not found: %v", resolved.SSHKey, resolved.Name, err)
+			}
+		}
+
+		g := git.New(resolved.Path, resolved.SSHKey)
 		if g == nil {
 			dl.Warnf("'%s' is not a git repository, skipping", resolved.Name)
 			continue

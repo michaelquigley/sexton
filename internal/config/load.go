@@ -74,6 +74,11 @@ func Resolve(entry *RepoEntry, defaults *RepoDefaults, local *RepoLocalConfig) (
 		return nil, err
 	}
 
+	sshKey := coalesce(local.SSHKey, entry.SSHKey, defaults.SSHKey)
+	if sshKey != "" {
+		sshKey = ExpandPath(sshKey)
+	}
+
 	return &ResolvedRepo{
 		Path:                path,
 		Name:                name,
@@ -81,6 +86,7 @@ func Resolve(entry *RepoEntry, defaults *RepoDefaults, local *RepoLocalConfig) (
 		PollInterval:        poll,
 		Branch:              coalesce(local.Branch, entry.Branch, defaults.Branch, "main"),
 		Remote:              coalesce(local.Remote, entry.Remote, defaults.Remote, "origin"),
+		SSHKey:              sshKey,
 		CommitMessagePrompt: coalesce(local.CommitMessagePrompt, entry.CommitMessagePrompt, defaults.CommitMessagePrompt, DefaultCommitMessagePrompt),
 		HoldoutWindows:      holdoutWindows,
 		Hooks:               hooks,

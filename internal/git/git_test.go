@@ -247,3 +247,65 @@ func readGitLog(t *testing.T, path string) []string {
 	}
 	return lines
 }
+
+func TestBuildSSHCommand(t *testing.T) {
+	tests := []struct {
+		name string
+		key  string
+		want string
+	}{
+		{"plain", "/home/u/.ssh/id", "ssh -i '/home/u/.ssh/id' -o IdentitiesOnly=yes"},
+		{"spaces", "/home/u/my keys/id", "ssh -i '/home/u/my keys/id' -o IdentitiesOnly=yes"},
+		{"embedded quote", "/home/u/o'brien/id", `ssh -i '/home/u/o'\''brien/id' -o IdentitiesOnly=yes`},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := buildSSHCommand(tt.key); got != tt.want {
+				t.Fatalf("buildSSHCommand(%q) = %q, want %q", tt.key, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestRunCtxInjectsSSHCommand(t *testing.T) {
+	gitLog := filepath.Join(t.TempDir(), "git.log")
+	installFakeGit(t, gitLog, `#!/bin/sh
+printf "GIT_SSH_COMMAND=%s\n" "$GIT_SSH_COMMAND" >> "$GIT_LOG"
+echo "main"
+exit 0
+`)
+
+	g := &Git{root: t.TempDir(), sshCommand: "ssh -i '/keys/deploy' -o IdentitiesOnly=yes"}
+
+	if _, err := g.Branch(context.Background()); err != nil {
+		t.Fatalf("Branch() error = %v", err)
+	}
+
+	lines := readGitLog(t, gitLog)
+	want := "GIT_SSH_COMMAND=ssh -i '/keys/deploy' -o IdentitiesOnly=yes"
+	if len(lines) == 0 || lines[0] != want {
+		t.Fatalf("git environment = %v, want first line %q", lines, want)
+	}
+}
+
+func TestRunCtxWithoutSSHKeyInheritsAmbient(t *testing.T) {
+	gitLog := filepath.Join(t.TempDir(), "git.log")
+	t.Setenv("GIT_SSH_COMMAND", "ambient-ssh")
+	installFakeGit(t, gitLog, `#!/bin/sh
+printf "GIT_SSH_COMMAND=%s\n" "$GIT_SSH_COMMAND" >> "$GIT_LOG"
+echo "main"
+exit 0
+`)
+
+	g := &Git{root: t.TempDir()}
+
+	if _, err := g.Branch(context.Background()); err != nil {
+		t.Fatalf("Branch() error = %v", err)
+	}
+
+	lines := readGitLog(t, gitLog)
+	want := "GIT_SSH_COMMAND=ambient-ssh"
+	if len(lines) == 0 || lines[0] != want {
+		t.Fatalf("git environment = %v, want first line %q", lines, want)
+	}
+}

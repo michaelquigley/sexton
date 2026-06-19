@@ -170,3 +170,63 @@ alerts:
 		})
 	}
 }
+
+func TestResolveSSHKeyCascadeAndExpansion(t *testing.T) {
+	repoRoot := t.TempDir()
+
+	// repo-local wins over global entry and defaults
+	resolved, err := Resolve(
+		&RepoEntry{Path: repoRoot, SSHKey: "/entry/key"},
+		&RepoDefaults{SSHKey: "/defaults/key"},
+		&RepoLocalConfig{SSHKey: "/local/key"},
+	)
+	if err != nil {
+		t.Fatalf("Resolve() error = %v", err)
+	}
+	if resolved.SSHKey != "/local/key" {
+		t.Fatalf("resolved ssh key = %q, want /local/key", resolved.SSHKey)
+	}
+
+	// falls back to defaults when entry and local are unset
+	resolved, err = Resolve(
+		&RepoEntry{Path: repoRoot},
+		&RepoDefaults{SSHKey: "/defaults/key"},
+		&RepoLocalConfig{},
+	)
+	if err != nil {
+		t.Fatalf("Resolve() error = %v", err)
+	}
+	if resolved.SSHKey != "/defaults/key" {
+		t.Fatalf("resolved ssh key = %q, want /defaults/key", resolved.SSHKey)
+	}
+
+	// ~ expands to the home directory
+	home, err := os.UserHomeDir()
+	if err != nil {
+		t.Fatalf("UserHomeDir() error = %v", err)
+	}
+	resolved, err = Resolve(
+		&RepoEntry{Path: repoRoot, SSHKey: "~/.ssh/deploy"},
+		&RepoDefaults{},
+		&RepoLocalConfig{},
+	)
+	if err != nil {
+		t.Fatalf("Resolve() error = %v", err)
+	}
+	if want := filepath.Join(home, ".ssh/deploy"); resolved.SSHKey != want {
+		t.Fatalf("resolved ssh key = %q, want %q", resolved.SSHKey, want)
+	}
+
+	// unset stays empty
+	resolved, err = Resolve(
+		&RepoEntry{Path: repoRoot},
+		&RepoDefaults{},
+		&RepoLocalConfig{},
+	)
+	if err != nil {
+		t.Fatalf("Resolve() error = %v", err)
+	}
+	if resolved.SSHKey != "" {
+		t.Fatalf("resolved ssh key = %q, want empty", resolved.SSHKey)
+	}
+}
