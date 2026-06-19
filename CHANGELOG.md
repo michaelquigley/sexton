@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## v0.1.1
+
 FEATURE: New per-repo `ssh_key` config points git at a specific private key via `GIT_SSH_COMMAND` (with `IdentitiesOnly=yes`), so sexton can sync SSH remotes without a running `ssh-agent` — enabling headless operation under a `systemctl --user` service. The key must be passphrase-less.
 
 ## v0.1.0
