@@ -1,8 +1,5 @@
 .idea
-go.work
-go.work.sum
 .claude
 .codex
-CLAUDE.md
-AGENTS.md
-CODEX-*.md
+go.work
+go.work.sum
