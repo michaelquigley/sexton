@@ -52,8 +52,8 @@ func TestFormatLastSync(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := formatLastSync(tt.lastSync, now); got != tt.want {
-				t.Fatalf("formatLastSync(%q) = %q, want %q", tt.lastSync, got, tt.want)
+			if got := formatRelativeTime(tt.lastSync, now); got != tt.want {
+				t.Fatalf("formatRelativeTime(%q) = %q, want %q", tt.lastSync, got, tt.want)
 			}
 		})
 	}

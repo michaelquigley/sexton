@@ -44,11 +44,11 @@ func runStatus(_ *cobra.Command, args []string) error {
 	}
 
 	w := tabwriter.NewWriter(os.Stdout, 0, 4, 2, ' ', 0)
-	_, _ = fmt.Fprintln(w, "NAME\tSTATE\tBRANCH\tLAST SYNC\tLAST CHANGE\tLAST COMMIT\tERROR\tPAUSE")
+	_, _ = fmt.Fprintln(w, "name\tstate\tbranch\tlast sync\tlast change\tlast commit\terror\tpause")
 	for _, r := range resp.GetRepos() {
 		now := time.Now()
-		lastSync := formatLastSync(r.GetLastSync(), now)
-		lastChange := formatLastSync(r.GetLastChange(), now)
+		lastSync := formatRelativeTime(r.GetLastSync(), now)
+		lastChange := formatRelativeTime(r.GetLastChange(), now)
 		lastCommit := r.GetLastCommit()
 		if lastCommit == "" {
 			lastCommit = "-"
@@ -71,14 +71,14 @@ func runStatus(_ *cobra.Command, args []string) error {
 	return w.Flush()
 }
 
-func formatLastSync(lastSync string, now time.Time) string {
-	if lastSync == "" {
+func formatRelativeTime(timestamp string, now time.Time) string {
+	if timestamp == "" {
 		return "-"
 	}
 
-	t, err := time.Parse(time.RFC3339, lastSync)
+	t, err := time.Parse(time.RFC3339, timestamp)
 	if err != nil {
-		return lastSync
+		return timestamp
 	}
 
 	return format.DurationAgo(now.Sub(t))

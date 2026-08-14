@@ -8,7 +8,7 @@ milestone: v0.1.x
 
 Decide "this repo has no remote" from configuration, not from git's error text. `git remote get-url <remote>` exits 2 when the remote is not configured and 0 when it is — so: exit 2 means commit-only mode is legitimate and the sync completes; exit 0 means the remote exists, and any pull or push failure is a real error that must be alerted, never a completed sync.
 
-While in there, detect a rebase conflict by state rather than by message — `.git/rebase-merge` present, or unmerged entries in porcelain status — so a reworded git message still reaches `RebaseAbort` instead of leaving the rebase in place.
+The conflict half of this card is done (2026-08-14): staging now refuses a tree with unmerged paths, and the conflict branch aborts the rebase ahead of the cancellation check on its own context. What remains is the no-remote classifier described above.
 
 ## why
 
@@ -22,6 +22,6 @@ The third is a serious failure and sexton reads it as the first. `ErrNoRemote` f
 
 ## background
 
-Data is not at risk in the conflict case, and the reason is worth knowing before touching this. If a conflict is ever missed by the message match, the rebase is left in place; on the next poll `validateBranch` runs `rev-parse --abbrev-ref HEAD`, which returns `HEAD` during a rebase, fails the configured-branch check, and errors the repo before anything is staged. Verified. That guard is the reason a missed conflict cannot commit conflict markers — do not weaken `validateBranch` without replacing it.
+This section originally claimed `validateBranch` was reason enough that a missed conflict could never commit conflict markers. That was wrong, and terminus found the hole on 2026-08-14: `validateBranch` only catches an interrupted *rebase*, where git detaches HEAD. A merge or cherry-pick conflict leaves the repo on its branch, passes the check, and `git add -A` was staging and committing the markers. Reproduced, then fixed by the unmerged-path check before staging. Two guards now, each covering a case the other misses — do not weaken either.
 
-Adjacent, currently inert: the porcelain parser in `internal/git/status.go` has no case for unmerged codes, so `UU` falls through to `Modified` and `AA` matches the `A` case as `Added`. Nothing reaches that parser mid-conflict today because of the guard above, but a change to either would make it live.
+The porcelain parser in `internal/git/status.go` still has no case for unmerged codes: `UU` falls through to `Modified` and `AA` matches the `A` case as `Added`. This was previously recorded here as inert, which was only true under the mistaken belief above. It is inert now for a real reason — nothing reaches the parser mid-conflict because staging refuses first — but the parser remains wrong on its own terms and is worth its own card.

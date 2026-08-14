@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
@@ -44,6 +45,7 @@ type Agent struct {
 type gitClient interface {
 	Branch(ctx context.Context) (string, error)
 	IsDirty(ctx context.Context) (bool, error)
+	Unmerged(ctx context.Context) ([]string, error)
 	Status(ctx context.Context) (*git.Status, error)
 	StageAll(ctx context.Context) error
 	Commit(ctx context.Context, message string) error
@@ -364,6 +366,26 @@ func (a *Agent) sync() {
 	}
 
 	if dirty {
+		// refuse to stage a tree carrying unresolved conflict markers. a merge or
+		// cherry-pick conflict leaves the repo on its branch, so validateBranch
+		// above does not catch it, and 'git add -A' would otherwise commit the
+		// markers and push them to the remote.
+		unmerged, err := a.git.Unmerged(ctx)
+		if err != nil {
+			if a.syncCanceled(ctx, err) {
+				return
+			}
+			a.setError("failed to check for unmerged paths", err)
+			return
+		}
+		if len(unmerged) > 0 {
+			a.setError("unresolved conflict", fmt.Errorf("%d unmerged path(s): %s", len(unmerged), strings.Join(unmerged, ", ")))
+			return
+		}
+		if a.shouldAbortSync(ctx) {
+			return
+		}
+
 		if err := a.runHooks(ctx, "pre_commit", a.cfg.Hooks.PreCommit); err != nil {
 			if a.syncCanceled(ctx, err) {
 				return
@@ -437,12 +459,21 @@ func (a *Agent) sync() {
 
 	pulled, err := a.git.Pull(ctx, a.cfg.Remote, a.cfg.Branch)
 	if err != nil {
-		if a.syncCanceled(ctx, err) {
+		// a conflict is handled ahead of the cancellation check: shutdown must not
+		// leave the repo mid-rebase, and the abort runs on its own context because
+		// the sync's may already be canceled.
+		if errors.Is(err, git.ErrConflict) {
+			abortCtx, cancelAbort := context.WithTimeout(context.Background(), rebaseAbortTimeout)
+			abortErr := a.git.RebaseAbort(abortCtx)
+			cancelAbort()
+			if abortErr != nil {
+				a.setError("rebase conflict; abort failed", fmt.Errorf("%w (abort: %v)", err, abortErr))
+				return
+			}
+			a.setError("rebase conflict", err)
 			return
 		}
-		if errors.Is(err, git.ErrConflict) {
-			_ = a.git.RebaseAbort(ctx)
-			a.setError("rebase conflict", err)
+		if a.syncCanceled(ctx, err) {
 			return
 		}
 		if errors.Is(err, git.ErrNoRemote) {
@@ -702,7 +733,7 @@ func formatErrorDetail(message string, err error) string {
 func (a *Agent) alert(severity, message string, err error) {
 	_ = a.alerter.Alert(context.Background(), AlertEvent{
 		Severity:  severity,
-		RepoPath:  a.cfg.Name,
+		RepoName:  a.cfg.Name,
 		Message:   message,
 		Error:     err,
 		Timestamp: a.now(),
@@ -720,13 +751,18 @@ func (a *Agent) alertWithFiles(severity, message string, status *git.Status, com
 	}
 	_ = a.alerter.Alert(context.Background(), AlertEvent{
 		Severity:      severity,
-		RepoPath:      a.cfg.Name,
+		RepoName:      a.cfg.Name,
 		Message:       message,
 		Timestamp:     a.now(),
 		Files:         files,
 		CommitMessage: commitMessage,
 	})
 }
+
+// rebaseAbortTimeout bounds the cleanup abort that runs after a rebase conflict.
+// it is deliberately not the sync's context, which may already be canceled by a
+// shutdown that arrived while the pull was conflicting.
+const rebaseAbortTimeout = 30 * time.Second
 
 const maxDiffBytes = 32 * 1024
 

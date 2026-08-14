@@ -35,7 +35,7 @@ type Client struct {
 	doneCh      chan struct{}
 }
 
-// NewClient creates a new Mattermost client. The token is resolved from the
+// NewClient creates a new Mattermost client. the token is resolved from the
 // environment variable named by cfg.TokenEnv, falling back to cfg.Token.
 func NewClient(cfg *config.MattermostConfig) *Client {
 	token := ""
@@ -59,7 +59,7 @@ func NewClient(cfg *config.MattermostConfig) *Client {
 }
 
 // Start authenticates with the Mattermost server, resolves the bot identity,
-// opens a WebSocket connection, and begins listening for commands. Startup
+// opens a WebSocket connection, and begins listening for commands. startup
 // failures (missing token, auth failure) are fatal — no silent degradation.
 func (c *Client) Start(handler CommandHandler) error {
 	if c.token == "" {

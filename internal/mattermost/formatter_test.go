@@ -13,7 +13,7 @@ import (
 func TestFormatAlertInfo(t *testing.T) {
 	event := agent.AlertEvent{
 		Severity: "info",
-		RepoPath: "my-notes",
+		RepoName: "my-notes",
 		Message:  "sync complete (abc123)",
 	}
 	got := FormatAlert(event)
@@ -31,7 +31,7 @@ func TestFormatAlertInfo(t *testing.T) {
 func TestFormatAlertWithFiles(t *testing.T) {
 	event := agent.AlertEvent{
 		Severity: "info",
-		RepoPath: "my-notes",
+		RepoName: "my-notes",
 		Message:  "sync complete (abc123)",
 		Files: &agent.AlertFiles{
 			Modified: []string{"notes/todo.md", "notes/ideas.md"},
@@ -57,7 +57,7 @@ func TestFormatAlertWithFiles(t *testing.T) {
 func TestFormatAlertWithFilesPartial(t *testing.T) {
 	event := agent.AlertEvent{
 		Severity: "info",
-		RepoPath: "my-notes",
+		RepoName: "my-notes",
 		Message:  "sync complete (abc123)",
 		Files: &agent.AlertFiles{
 			Modified: []string{"notes/todo.md"},
@@ -78,7 +78,7 @@ func TestFormatAlertWithFilesPartial(t *testing.T) {
 func TestFormatAlertError(t *testing.T) {
 	event := agent.AlertEvent{
 		Severity: "error",
-		RepoPath: "my-notes",
+		RepoName: "my-notes",
 		Message:  "pull failed",
 		Error:    errors.New("conflict detected"),
 	}
@@ -140,7 +140,7 @@ func TestFormatStatusTable(t *testing.T) {
 func TestFormatAlertWithCommitMessage(t *testing.T) {
 	event := agent.AlertEvent{
 		Severity:      "info",
-		RepoPath:      "my-notes",
+		RepoName:      "my-notes",
 		Message:       "sync complete (abc123)",
 		CommitMessage: "add pane design spec and update project index",
 	}

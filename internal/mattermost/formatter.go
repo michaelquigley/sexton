@@ -21,7 +21,7 @@ func FormatAlert(event agent.AlertEvent) string {
 	default:
 		b.WriteString("**info**")
 	}
-	fmt.Fprintf(&b, " [%s] %s", event.RepoPath, event.Message)
+	fmt.Fprintf(&b, " [%s] %s", event.RepoName, event.Message)
 	if event.Error != nil {
 		fmt.Fprintf(&b, ": %v", event.Error)
 	}

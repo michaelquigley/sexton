@@ -28,8 +28,8 @@ func (e *LookupError) Unwrap() error {
 	return e.err
 }
 
-// ResolveAgent returns the agent matching the given repo identifier. Explicit
-// configured names and full paths are stable identifiers. A basename remains a
+// ResolveAgent returns the agent matching the given repo identifier. explicit
+// configured names and full paths are stable identifiers. a basename remains a
 // convenience fallback only when it resolves to exactly one repo.
 func (c *Container) ResolveAgent(repo string) (*Agent, error) {
 	if ag, err := matchSingle(repo, c.Agents, func(a *Agent) bool {

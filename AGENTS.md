@@ -32,7 +32,7 @@ Violating one of these is a review finding, not a style note.
 - **Never mutate a synced repo's configuration.** A per-repo `ssh_key` becomes `GIT_SSH_COMMAND` on the git child process, deliberately not `git config core.sshCommand` — sexton commits to these repositories, it never reconfigures them.
 - **`GIT_SSH_COMMAND` is appended last** so it beats any ambient value; with no `ssh_key`, `cmd.Env` stays nil so git inherits the user's `ssh-agent`. Both paths are pinned in `git_test.go`.
 - **Never discard a working tree.** A conflict aborts the rebase and errors the repo; resolution is the operator's. No `reset --hard`, no force push, no stash-and-drop.
-- **`validateBranch` is a guard.** `rev-parse --abbrev-ref HEAD` returns `HEAD` mid-rebase, which is what stops a left-behind rebase being staged and committed on the next poll (verified 2026-08-14). Don't weaken it without replacing what it catches.
+- **Two guards stand between a conflicted tree and a commit; neither covers the other's case.** `validateBranch` catches an interrupted *rebase*, because git detaches HEAD for one and `rev-parse --abbrev-ref HEAD` reports `HEAD`. A *merge* or cherry-pick conflict leaves the repo on its branch and sails through that check, so the unmerged-path check before staging is what catches it — without it, `git add -A` commits the conflict markers and pushes them. Both verified 2026-08-14. Don't weaken either without replacing what it catches.
 - **Config binds through `df/dd`** — `dd:` struct tags, never `yaml:`. A `yaml:` tag and a misspelled key are both silently ignored, so the feature just never turns on.
 
 ## Process

@@ -29,7 +29,7 @@ type RepoStatus struct {
 }
 
 // Dispatch parses pre-stripped command text (trigger word or @mentions already
-// removed) and dispatches to the appropriate CommandHandler method. Returns the
+// removed) and dispatches to the appropriate CommandHandler method. returns the
 // formatted response and whether the text was recognized as a command.
 func Dispatch(commandText string, handler CommandHandler) (string, bool) {
 	tokens := strings.Fields(strings.TrimSpace(commandText))
@@ -57,7 +57,7 @@ func Dispatch(commandText string, handler CommandHandler) (string, bool) {
 }
 
 // StripTriggerWord checks if text starts with a trigger word (case-insensitive,
-// word boundary) and returns the remainder. The bool indicates whether a trigger
+// word boundary) and returns the remainder. the bool indicates whether a trigger
 // word was found.
 func StripTriggerWord(text string, triggerWords []string) (string, bool) {
 	lower := strings.ToLower(text)

@@ -21,6 +21,8 @@ type stubGit struct {
 	branchErr      error
 	dirty          bool
 	dirtyErr       error
+	unmerged       []string
+	unmergedErr    error
 	status         *git.Status
 	statusErr      error
 	stageErr       error
@@ -58,6 +60,7 @@ func (g *stubGit) IsDirty(ctx context.Context) (bool, error) {
 	}
 	return g.dirty, g.dirtyErr
 }
+func (g *stubGit) Unmerged(context.Context) ([]string, error) { return g.unmerged, g.unmergedErr }
 func (g *stubGit) Status(context.Context) (*git.Status, error) { return g.status, g.statusErr }
 func (g *stubGit) StageAll(ctx context.Context) error {
 	g.stageCalls++
@@ -190,6 +193,68 @@ func TestSyncRepeatedSameErrorDoesNotReAlert(t *testing.T) {
 
 	if len(alerts.events) != 1 {
 		t.Fatalf("expected one deduplicated alert, got %d", len(alerts.events))
+	}
+}
+
+func TestSyncAbortsRebaseWhenShutdownRacesConflict(t *testing.T) {
+	g := &stubGit{pullErr: git.ErrConflict, shortHEAD: "abc123"}
+	a := newAgentForTest(g, nil)
+	// shutdown arrives while the pull is conflicting. the abort must still run:
+	// returning here would leave the repo mid-rebase.
+	g.onPull = func(context.Context) { a.cancel() }
+
+	a.sync()
+
+	if g.rebaseAborts != 1 {
+		t.Fatalf("rebaseAborts = %d, want 1 — a conflict must be aborted even during shutdown", g.rebaseAborts)
+	}
+	if a.State() != Error {
+		t.Fatalf("state = %v, want %v", a.State(), Error)
+	}
+}
+
+func TestSyncReportsRebaseAbortFailure(t *testing.T) {
+	g := &stubGit{
+		pullErr:        git.ErrConflict,
+		rebaseAbortErr: errors.New("index locked"),
+		shortHEAD:      "abc123",
+	}
+	a := newAgentForTest(g, nil)
+
+	a.sync()
+
+	detail := a.ErrorDetail()
+	if !strings.Contains(detail, "abort failed") || !strings.Contains(detail, "index locked") {
+		t.Fatalf("error detail = %q, want it to report the failed abort", detail)
+	}
+}
+
+func TestSyncRefusesToStageUnmergedPaths(t *testing.T) {
+	dir := t.TempDir()
+	marker := filepath.Join(dir, "pre-commit")
+	g := &stubGit{dirty: true, unmerged: []string{"notes.md", "index.json"}, shortHEAD: "abc123"}
+	a := newAgentForTest(g, nil)
+	a.cfg.Path = dir
+	a.cfg.Hooks.PreCommit = []*config.ResolvedHook{
+		{Command: "touch " + marker, Timeout: 10 * time.Second},
+	}
+
+	a.sync()
+
+	if g.stageCalls != 0 {
+		t.Fatalf("stageCalls = %d, want 0 — a conflicted tree must never be staged", g.stageCalls)
+	}
+	if g.commitCalls != 0 {
+		t.Fatalf("commitCalls = %d, want 0", g.commitCalls)
+	}
+	if _, err := os.Stat(marker); !os.IsNotExist(err) {
+		t.Fatalf("pre_commit hook ran against a conflicted tree, stat error = %v", err)
+	}
+	if a.State() != Error {
+		t.Fatalf("state = %v, want %v", a.State(), Error)
+	}
+	if detail := a.ErrorDetail(); !strings.Contains(detail, "notes.md") {
+		t.Fatalf("error detail = %q, want it to name the unmerged paths", detail)
 	}
 }
 

@@ -6,18 +6,19 @@ import (
 	"github.com/michaelquigley/sexton/internal/agent"
 )
 
-// MattermostAlerter posts alert events to a Mattermost channel.
-type MattermostAlerter struct {
+// Alerter posts alert events to a Mattermost channel. it implements
+// agent.Alerter.
+type Alerter struct {
 	client    *Client
 	channelID string
 }
 
-// NewAlerter creates a new MattermostAlerter that posts to the given channel.
-func NewAlerter(client *Client, channelID string) *MattermostAlerter {
-	return &MattermostAlerter{client: client, channelID: channelID}
+// NewAlerter creates a new Alerter that posts to the given channel.
+func NewAlerter(client *Client, channelID string) *Alerter {
+	return &Alerter{client: client, channelID: channelID}
 }
 
-func (a *MattermostAlerter) Alert(_ context.Context, event agent.AlertEvent) error {
+func (a *Alerter) Alert(_ context.Context, event agent.AlertEvent) error {
 	text := FormatAlert(event)
 	return a.client.PostMessage(a.channelID, text)
 }

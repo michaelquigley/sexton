@@ -153,7 +153,7 @@ func agentToRepoInfo(ag *agent.Agent) rpc.RepoInfo {
 	return info
 }
 
-// buildAlerter constructs an alerter from the config. Returns the alerter and
+// buildAlerter constructs an alerter from the config. returns the alerter and
 // an optional cleanup function for mattermost clients.
 func buildAlerter(alerts []*config.AlertConfig, adapter *containerAdapter) (agent.Alerter, func(), error) {
 	if len(alerts) == 0 {

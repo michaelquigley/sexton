@@ -140,6 +140,21 @@ func (g *Git) IsDirty(ctx context.Context) (bool, error) {
 	return strings.TrimSpace(out) != "", nil
 }
 
+// Unmerged returns the paths carrying unresolved conflict markers. a merge or
+// cherry-pick conflict leaves the repo on its branch, so the configured-branch
+// check does not catch it the way it catches an interrupted rebase.
+func (g *Git) Unmerged(ctx context.Context) ([]string, error) {
+	out, err := g.runCtx(ctx, "diff", "--name-only", "--diff-filter=U")
+	if err != nil {
+		return nil, err
+	}
+	out = strings.TrimSpace(out)
+	if out == "" {
+		return nil, nil
+	}
+	return strings.Split(out, "\n"), nil
+}
+
 func (g *Git) Branch(ctx context.Context) (string, error) {
 	out, err := g.runCtx(ctx, "rev-parse", "--abbrev-ref", "HEAD")
 	if err != nil {

@@ -16,7 +16,7 @@ type AlertFiles struct {
 
 type AlertEvent struct {
 	Severity      string
-	RepoPath      string
+	RepoName      string
 	Message       string
 	Error         error
 	Timestamp     time.Time
@@ -34,22 +34,22 @@ func (a *LogAlerter) Alert(_ context.Context, event AlertEvent) error {
 	switch event.Severity {
 	case "error":
 		if event.Error != nil {
-			dl.Errorf("[%s] %s: %v", event.RepoPath, event.Message, event.Error)
+			dl.Errorf("[%s] %s: %v", event.RepoName, event.Message, event.Error)
 		} else {
-			dl.Errorf("[%s] %s", event.RepoPath, event.Message)
+			dl.Errorf("[%s] %s", event.RepoName, event.Message)
 		}
 	case "warning":
-		dl.Warnf("[%s] %s", event.RepoPath, event.Message)
+		dl.Warnf("[%s] %s", event.RepoName, event.Message)
 	default:
 		if event.Files != nil {
 			dl.Infof("[%s] %s (%d modified, %d added, %d deleted)",
-				event.RepoPath, event.Message,
+				event.RepoName, event.Message,
 				len(event.Files.Modified), len(event.Files.Added), len(event.Files.Deleted))
 		} else {
-			dl.Infof("[%s] %s", event.RepoPath, event.Message)
+			dl.Infof("[%s] %s", event.RepoName, event.Message)
 		}
 		if event.CommitMessage != "" {
-			dl.Infof("[%s] commit message: '%s'", event.RepoPath, event.CommitMessage)
+			dl.Infof("[%s] commit message: '%s'", event.RepoName, event.CommitMessage)
 		}
 	}
 	return nil
