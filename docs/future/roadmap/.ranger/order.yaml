@@ -1,9 +1,8 @@
 researching:
-  - install-the-docs-split.md
   - rewrite-agentsmd-as-orientation.md
   - onboard-into-terminus-review.md
+  - broken-remote-reports-sync-success.md
   - pull-only-repos.md
   - semantic-differs.md
 building:
 evaluating:
-  - make-clean-wipes-gobin.md
