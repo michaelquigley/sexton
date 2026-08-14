@@ -114,9 +114,9 @@ protoc --go_out=. --go_opt=paths=source_relative \
 - **Control socket**: `~/.config/sexton/sexton.sock` (gRPC control plane)
 - **Per repo**: poll interval, branch/remote, `ssh_key`, commit-message prompt, lifecycle hooks, and daily holdout windows are configurable; the top-level `alerts` list selects `log` and/or `mattermost`. an `ssh_key` is injected as `GIT_SSH_COMMAND=ssh -i <key> -o IdentitiesOnly=yes` so git authenticates without an `ssh-agent` (enables headless `systemctl --user` operation). config binds via `df/dd`, so types use `dd:` struct tags (e.g. `dd:",+required"`), never `yaml:` tags. see `README.md` for the full field reference.
 
-## Spec
+## Design documents
 
-The full design specification lives at `~/Repos/q/writing/grimoire/software/sexton/sexton-spec.md`.
+Forward-looking design — specs, visions, work orders — lives in `docs/future/`. Descriptions of behavior that is actually built belong in `docs/current/`. The original sexton spec lived in the grimoire's `software/sexton/` tree; that tree was dissolved into the project repos on 2026-07-06, and what survived of it is `docs/future/semantic-differs.md`.
 
 ## Project memory
 
@@ -134,6 +134,12 @@ That filter keeps four kinds of thing and discards the rest:
 - **Live state** — what's unverified, unfinished, or waiting on something external.
 
 Skip change inventories, restatements of the diff, and play-by-play of how you worked. There's no write-time approval gate; Michael reviews on commit. Append to the day's file if it exists, and write the few lines you'd want the next agent to read — honest and self-contained.
+
+## Roadmap
+
+This repo's roadmap lives in `docs/future/roadmap/` — one frontmatter-markdown item per file, per the roadmap convention in the grimoire (software/conventions/roadmap-convention.md). You may add items freely: write the file directly with required `title`, `state: inbox`, and `created:` (today, YYYY-MM-DD), optional `tags`/`source`/`log`, and a body that is a small, clear prompt -- the problem or solution to execute, not documentation of it; trust the code and the day's journal entry for what's discoverable, and point a `log:` stamp at the specific journal entry when a card leans on hard-won context. Everything above the first `##` heading is the prompt; supporting material that isn't the prompt goes in named sections below it (`## why` for justification, `## background` for a longer description), which are conventional, never required, and never validated. The filename is the slug of the title (lowercase ASCII, hyphens; discard every other character); never overwrite an existing file. Read sibling items for the shape.
+
+Hard rules: never touch `order.yaml` (priority is the operator's judgment, set at triage); never commit roadmap changes unless directed — the uncommitted diff is the review queue; never delete items; edits change only the lines that express them. Label the kind from the house set when one fits: defect, documentation, enhancement, epic, feature, story; add `spike` alongside it when the work carries unknowns that need discovery.
 
 ## Project Rules
 
