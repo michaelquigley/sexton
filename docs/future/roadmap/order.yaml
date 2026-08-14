@@ -1,4 +1,7 @@
 researching:
+  - make-clean-wipes-gobin.md
   - install-the-docs-split.md
+  - rewrite-agentsmd-as-orientation.md
+  - onboard-into-terminus-review.md
   - pull-only-repos.md
   - semantic-differs.md
