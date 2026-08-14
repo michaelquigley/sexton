@@ -1,6 +1,6 @@
 ---
 title: onboard into terminus review
-state: researching
+state: evaluating
 created: 2026-08-13
 tags: [enhancement]
 milestone: v0.1.x

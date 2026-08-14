@@ -1,7 +1,7 @@
 researching:
-  - onboard-into-terminus-review.md
   - broken-remote-reports-sync-success.md
   - pull-only-repos.md
   - semantic-differs.md
 building:
 evaluating:
+  - onboard-into-terminus-review.md
