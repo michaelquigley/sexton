@@ -1,6 +1,6 @@
 ---
 title: make clean wipes gobin
-state: researching
+state: evaluating
 created: 2026-08-13
 tags: [defect]
 milestone: v0.1.x
