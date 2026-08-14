@@ -3,3 +3,5 @@
 .codex
 go.work
 go.work.sum
+.mercurius
+mercurius.yaml
