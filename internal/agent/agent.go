@@ -58,7 +58,7 @@ type gitClient interface {
 	DiffStat(ctx context.Context) (string, error)
 }
 
-func New(cfg *config.ResolvedRepo, g *git.Git) *Agent {
+func NewAgent(cfg *config.ResolvedRepo, g *git.Git) *Agent {
 	runCtx, cancel := context.WithCancel(context.Background())
 	return &Agent{
 		cfg:    cfg,
@@ -463,9 +463,7 @@ func (a *Agent) sync() {
 		// leave the repo mid-rebase, and the abort runs on its own context because
 		// the sync's may already be canceled.
 		if errors.Is(err, git.ErrConflict) {
-			abortCtx, cancelAbort := context.WithTimeout(context.Background(), rebaseAbortTimeout)
-			abortErr := a.git.RebaseAbort(abortCtx)
-			cancelAbort()
+			abortErr := a.abortRebase()
 			if abortErr != nil {
 				a.setError("rebase conflict; abort failed", fmt.Errorf("%w (abort: %v)", err, abortErr))
 				return
@@ -474,6 +472,11 @@ func (a *Agent) sync() {
 			return
 		}
 		if a.syncCanceled(ctx, err) {
+			// a canceled pull cannot report a conflict: killing git discards the
+			// output the conflict is recognized from, and the kill can itself leave
+			// a rebase in progress. abort unconditionally on the way out — with no
+			// rebase in progress it fails harmlessly.
+			_ = a.abortRebase()
 			return
 		}
 		if errors.Is(err, git.ErrNoRemote) {
@@ -757,6 +760,15 @@ func (a *Agent) alertWithFiles(severity, message string, status *git.Status, com
 		Files:         files,
 		CommitMessage: commitMessage,
 	})
+}
+
+// abortRebase runs 'git rebase --abort' on its own bounded context, deliberately
+// not the sync's, which may already be canceled by the shutdown that made the
+// cleanup necessary.
+func (a *Agent) abortRebase() error {
+	abortCtx, cancel := context.WithTimeout(context.Background(), rebaseAbortTimeout)
+	defer cancel()
+	return a.git.RebaseAbort(abortCtx)
 }
 
 // rebaseAbortTimeout bounds the cleanup abort that runs after a rebase conflict.

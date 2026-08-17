@@ -97,7 +97,7 @@ This requires a new method on the `Git` type:
 ```go
 // ShowFile writes the contents of a file at a given ref to a temp file and returns the path.
 // ref can be "HEAD", "HEAD~1", "" (index/staging area), etc.
-// Returns the temp file path. Caller is responsible for cleanup.
+// returns the temp file path. caller is responsible for cleanup.
 func (g *Git) ShowFile(ref string, filepath string, tmpDir string) (string, error)
 ```
 
@@ -182,7 +182,7 @@ Core function:
 
 ```go
 // runDiffer executes a semantic differ for a single file change.
-// Returns the semantic description, or empty string on failure.
+// returns the semantic description, or empty string on failure.
 func (a *Agent) runDiffer(ctx context.Context, differ *config.ResolvedDiffer, oldPath, newPath string) string
 ```
 
@@ -199,7 +199,7 @@ Matching function:
 
 ```go
 // findDiffer returns the first configured differ whose pattern matches the given filepath.
-// Returns nil if no differ matches.
+// returns nil if no differ matches.
 func (a *Agent) findDiffer(filepath string) *config.ResolvedDiffer
 ```
 
@@ -227,8 +227,8 @@ This is the main entry point, called from `generateCommitMessage`. It:
 
 ```go
 // ShowFile extracts a file at the given ref to a temp file.
-// Use "HEAD" for the committed version, "" for the staged version.
-// Returns temp file path. Caller must clean up.
+// use "HEAD" for the committed version, "" for the staged version.
+// returns temp file path. caller must clean up.
 func (g *Git) ShowFile(ref string, filepath string, tmpDir string) (string, error)
 
 // DiffStagedFile returns the staged diff for a single file.

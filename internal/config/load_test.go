@@ -123,6 +123,44 @@ func TestResolveHookDirExpandsHomePath(t *testing.T) {
 	}
 }
 
+func TestLoadRejectsModelWithoutEndpoint(t *testing.T) {
+	content := `
+llm:
+  model: gpt-5.6
+repos:
+  - path: /tmp/repo
+`
+	configPath := filepath.Join(t.TempDir(), "config.yaml")
+	if err := os.WriteFile(configPath, []byte(strings.TrimSpace(content)), 0o644); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+
+	if _, err := Load(configPath); err == nil {
+		t.Fatal("Load() error = nil, want an error naming the empty endpoint")
+	} else if !strings.Contains(err.Error(), "llm.endpoint") {
+		t.Fatalf("Load() error = %v, want it to name llm.endpoint", err)
+	}
+}
+
+func TestLoadAcceptsNoLLMBlock(t *testing.T) {
+	content := `
+repos:
+  - path: /tmp/repo
+`
+	configPath := filepath.Join(t.TempDir(), "config.yaml")
+	if err := os.WriteFile(configPath, []byte(strings.TrimSpace(content)), 0o644); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+
+	cfg, err := Load(configPath)
+	if err != nil {
+		t.Fatalf("Load() error = %v, want nil — omitting the llm block is supported", err)
+	}
+	if cfg.LLM != nil {
+		t.Fatalf("cfg.LLM = %+v, want nil", cfg.LLM)
+	}
+}
+
 func TestLoadRejectsMattermostConfigMissingRequiredFields(t *testing.T) {
 	tests := []struct {
 		name    string

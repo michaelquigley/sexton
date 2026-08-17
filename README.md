@@ -111,8 +111,8 @@ hooks:
 
 | Field | Scope | Default | Description |
 |---|---|---|---|
-| `llm.endpoint` | global | (required) | LLM API endpoint URL |
-| `llm.model` | global | (required) | Model identifier |
+| `llm.endpoint` | global | -- | LLM API endpoint URL. Omit the whole `llm` block to disable summarization; commit messages then use the built-in mechanical generator |
+| `llm.model` | global | -- | Model identifier. Only meaningful alongside `llm.endpoint`; setting it alone is a config error |
 | `llm.api_key_env` | global | -- | Env var containing the API key |
 | `llm.max_tokens` | global | `512` | Max tokens for diff context sent to LLM |
 | `name` | repo | basename of path | Display name and stable control-plane identifier for the repo when explicitly set |
@@ -255,11 +255,13 @@ stateDiagram-v2
 
 ## Commit messages
 
-Sexton sends the staged diff (or `--stat` for large diffs) to the configured LLM and uses the response as the commit message. If the LLM is unavailable, it falls back to a mechanical summary:
+Sexton sends the staged diff (or `--stat` for large diffs) to the configured LLM and uses the response as the commit message. If the LLM is unavailable — or no `llm` block is configured at all — it falls back to a mechanical summary:
 
 ```
-sexton: modified 3 files, added 1, deleted 0
+sexton: add 1 file, update 3 files
 ```
+
+Omitting the `llm` block entirely is a supported configuration: every repo then commits with the mechanical summary and sexton makes no network calls beyond git itself.
 
 ## Control plane
 

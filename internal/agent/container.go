@@ -60,7 +60,7 @@ func NewContainer(cfg *config.GlobalConfig) (*Container, error) {
 			continue
 		}
 
-		c.Agents = append(c.Agents, New(resolved, g))
+		c.Agents = append(c.Agents, NewAgent(resolved, g))
 	}
 
 	if len(c.Agents) == 0 {

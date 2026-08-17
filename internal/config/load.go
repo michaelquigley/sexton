@@ -33,7 +33,24 @@ func Load(configPath string) (*GlobalConfig, error) {
 		r.Path = ExpandPath(r.Path)
 	}
 
+	if err := validateLLM(cfg.LLM); err != nil {
+		return nil, err
+	}
+
 	return cfg, nil
+}
+
+// validateLLM rejects the one invalid llm combination. omitting the block
+// entirely is supported and disables summarization, but a 'model' without an
+// 'endpoint' builds no client at all, so the setting silently does nothing.
+func validateLLM(cfg *LLMConfig) error {
+	if cfg == nil {
+		return nil
+	}
+	if cfg.Model != "" && cfg.Endpoint == "" {
+		return fmt.Errorf("llm.model is set to %q but llm.endpoint is empty; set an endpoint or remove the llm block to use mechanical commit messages", cfg.Model)
+	}
+	return nil
 }
 
 func LoadRepoLocal(repoRoot string) (*RepoLocalConfig, error) {

@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+CHANGE: An `llm` block that sets `model` without `endpoint` is now rejected at load with a message naming the fix. That combination built no client at all, so the model setting silently did nothing. Omitting the `llm` block entirely remains fully supported and disables summarization — `README.md` previously described `llm.endpoint` and `llm.model` as required, which was never true of the code.
+
 FIX: A repository left with an unresolved merge or cherry-pick conflict is no longer staged, committed, and pushed with its conflict markers intact. The configured-branch check catches an interrupted *rebase*, because git detaches HEAD for one — but a merge or cherry-pick conflict leaves the repository on its branch, so it passed that check and `git add -A` swept up the conflict-marked files. Sexton now refuses to stage a tree with unmerged paths, entering the error state naming them and retrying every poll until the conflict is resolved by hand.
 
 FIX: A shutdown arriving while a `git pull --rebase` is conflicting no longer leaves the repository mid-rebase. The conflict is now handled before the cancellation check, and the `rebase --abort` that cleans it up runs on its own bounded context rather than the sync's, which by then may already be canceled. An abort that itself fails is reported in the repo's error detail instead of being discarded, so the error no longer claims a rebase was aborted when it was not.

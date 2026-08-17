@@ -213,6 +213,20 @@ func TestSyncAbortsRebaseWhenShutdownRacesConflict(t *testing.T) {
 	}
 }
 
+func TestSyncAbortsRebaseWhenPullIsCanceled(t *testing.T) {
+	// a canceled pull never reports ErrConflict — killing git discards the output
+	// the conflict is recognized from — and the kill can leave a rebase in place.
+	g := &stubGit{pullErr: git.ErrPullFailed, shortHEAD: "abc123"}
+	a := newAgentForTest(g, nil)
+	g.onPull = func(context.Context) { a.cancel() }
+
+	a.sync()
+
+	if g.rebaseAborts != 1 {
+		t.Fatalf("rebaseAborts = %d, want 1 — a canceled pull may have left a rebase in progress", g.rebaseAborts)
+	}
+}
+
 func TestSyncReportsRebaseAbortFailure(t *testing.T) {
 	g := &stubGit{
 		pullErr:        git.ErrConflict,
