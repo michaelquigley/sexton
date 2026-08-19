@@ -22,15 +22,21 @@ type Client struct {
 }
 
 // NewClient returns a Client for the given LLM config, or nil if the config is
-// nil or has no endpoint configured.
+// nil or has no endpoint configured; the API key is resolved at startup from
+// the environment variable named by APIKeyEnv when that value is non-empty,
+// falling back to the APIKey set directly in the config — the same
+// precedence the Mattermost token pair uses.
 func NewClient(cfg *config.LLMConfig) *Client {
 	if cfg == nil || cfg.Endpoint == "" {
 		return nil
 	}
 
-	var apiKey string
+	apiKey := ""
 	if cfg.APIKeyEnv != "" {
 		apiKey = os.Getenv(cfg.APIKeyEnv)
+	}
+	if apiKey == "" {
+		apiKey = cfg.APIKey
 	}
 
 	maxTokens := cfg.MaxTokens

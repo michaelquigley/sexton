@@ -39,7 +39,9 @@ Windows are evaluated in `time.Local` against the day's midnight, which means th
 
 ## the llm
 
-`endpoint`, `model`, `api_key_env`, and `max_tokens` (default 512). The client is nil when no endpoint is configured, and a nil client is a supported configuration — commit messages fall back to the mechanical generator. Omitting the whole block is therefore legitimate, and none of these fields is individually required. The one combination that is rejected at load is a `model` with no `endpoint`: it builds no client, so the setting would silently do nothing. The API key is read from the named environment variable at startup; there is no way to put a key in the config file.
+`endpoint`, `model`, `api_key`, `api_key_env`, and `max_tokens` (default 512). The client is nil when no endpoint is configured, and a nil client is a supported configuration — commit messages fall back to the mechanical generator. Omitting the whole block is therefore legitimate, and none of these fields is individually required. The one combination that is rejected at load is a `model` with no `endpoint`: it builds no client, so the setting would silently do nothing.
+
+The API key is resolved once at startup: a non-empty value from the environment variable named by `api_key_env` wins, otherwise the key set directly in `api_key` is used. Both are read at startup only, so a rotated key requires a restart. The pair mirrors the Mattermost `token`/`token_env` precedence, so the two credential-bearing integrations share one rule.
 
 ## alerts
 

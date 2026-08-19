@@ -54,6 +54,7 @@ type RepoEntry struct {
 type LLMConfig struct {
 	Endpoint  string
 	Model     string
+	APIKey    string
 	APIKeyEnv string
 	MaxTokens int
 }

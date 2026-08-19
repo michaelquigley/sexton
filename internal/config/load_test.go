@@ -161,6 +161,32 @@ repos:
 	}
 }
 
+func TestLoadBindsLLMAPIKey(t *testing.T) {
+	content := `
+llm:
+  endpoint: http://localhost:8080/v1/chat/completions
+  model: gpt-5.6
+  api_key: test-key
+repos:
+  - path: /tmp/repo
+`
+	configPath := filepath.Join(t.TempDir(), "config.yaml")
+	if err := os.WriteFile(configPath, []byte(strings.TrimSpace(content)), 0o644); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+
+	cfg, err := Load(configPath)
+	if err != nil {
+		t.Fatalf("Load() error = %v, want nil", err)
+	}
+	if cfg.LLM == nil {
+		t.Fatal("cfg.LLM = nil, want llm config")
+	}
+	if cfg.LLM.APIKey != "test-key" {
+		t.Fatalf("cfg.LLM.APIKey = %q, want %q", cfg.LLM.APIKey, "test-key")
+	}
+}
+
 func TestLoadRejectsMattermostConfigMissingRequiredFields(t *testing.T) {
 	tests := []struct {
 		name    string

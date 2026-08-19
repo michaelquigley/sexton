@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+FEATURE: The `llm` block now accepts an `api_key` field, so the LLM API key can be set directly in the config file instead of only via the environment variable named by `api_key_env`. When both are set, a non-empty env var value wins — the same precedence the Mattermost `token`/`token_env` pair has always used.
+
 ## v0.1.2
 
 CHANGE: An `llm` block that sets `model` without `endpoint` is now rejected at load with a message naming the fix. That combination built no client at all, so the model setting silently did nothing. Omitting the `llm` block entirely remains fully supported and disables summarization — `README.md` previously described `llm.endpoint` and `llm.model` as required, which was never true of the code.

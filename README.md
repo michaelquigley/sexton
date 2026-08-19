@@ -58,7 +58,7 @@ go build ./cmd/sexton
 llm:
   endpoint: "http://localhost:8080/v1/chat/completions"
   model: "claude-sonnet-4-20250514"
-  api_key_env: "SEXTON_LLM_API_KEY"
+  api_key: "sk-your-key" # or api_key_env: "SEXTON_LLM_API_KEY" for a key from the environment
   max_tokens: 512
 
 defaults:
@@ -113,7 +113,8 @@ hooks:
 |---|---|---|---|
 | `llm.endpoint` | global | -- | LLM API endpoint URL. Omit the whole `llm` block to disable summarization; commit messages then use the built-in mechanical generator |
 | `llm.model` | global | -- | Model identifier. Only meaningful alongside `llm.endpoint`; setting it alone is a config error |
-| `llm.api_key_env` | global | -- | Env var containing the API key |
+| `llm.api_key` | global | -- | API key for the LLM endpoint, set directly in the config file. When both this and `llm.api_key_env` are set, a non-empty env var value wins |
+| `llm.api_key_env` | global | -- | Env var containing the API key; a non-empty value wins over `llm.api_key` |
 | `llm.max_tokens` | global | `512` | Max tokens for diff context sent to LLM |
 | `name` | repo | basename of path | Display name and stable control-plane identifier for the repo when explicitly set |
 | `poll_interval` | global, repo | `30s` | Duration between poll cycles |

@@ -8,7 +8,70 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/michaelquigley/sexton/internal/config"
 )
+
+func TestNewClientAPIKeyFromConfig(t *testing.T) {
+	client := NewClient(&config.LLMConfig{
+		Endpoint: "http://localhost:8080/v1/chat/completions",
+		Model:    "test-model",
+		APIKey:   "direct-key",
+	})
+	if client == nil {
+		t.Fatal("NewClient() = nil, want client")
+	}
+	if client.apiKey != "direct-key" {
+		t.Fatalf("client.apiKey = %q, want %q", client.apiKey, "direct-key")
+	}
+}
+
+func TestNewClientAPIKeyEnvWinsOverConfig(t *testing.T) {
+	t.Setenv("SEXTON_TEST_LLM_API_KEY", "env-key")
+
+	client := NewClient(&config.LLMConfig{
+		Endpoint:  "http://localhost:8080/v1/chat/completions",
+		Model:     "test-model",
+		APIKey:    "direct-key",
+		APIKeyEnv: "SEXTON_TEST_LLM_API_KEY",
+	})
+	if client == nil {
+		t.Fatal("NewClient() = nil, want client")
+	}
+	if client.apiKey != "env-key" {
+		t.Fatalf("client.apiKey = %q, want %q", client.apiKey, "env-key")
+	}
+}
+
+func TestNewClientAPIKeyEnvEmptyFallsBackToConfig(t *testing.T) {
+	t.Setenv("SEXTON_TEST_LLM_API_KEY", "")
+
+	client := NewClient(&config.LLMConfig{
+		Endpoint:  "http://localhost:8080/v1/chat/completions",
+		Model:     "test-model",
+		APIKey:    "direct-key",
+		APIKeyEnv: "SEXTON_TEST_LLM_API_KEY",
+	})
+	if client == nil {
+		t.Fatal("NewClient() = nil, want client")
+	}
+	if client.apiKey != "direct-key" {
+		t.Fatalf("client.apiKey = %q, want %q", client.apiKey, "direct-key")
+	}
+}
+
+func TestNewClientWithoutAnyAPIKey(t *testing.T) {
+	client := NewClient(&config.LLMConfig{
+		Endpoint: "http://localhost:8080/v1/chat/completions",
+		Model:    "test-model",
+	})
+	if client == nil {
+		t.Fatal("NewClient() = nil, want client")
+	}
+	if client.apiKey != "" {
+		t.Fatalf("client.apiKey = %q, want empty", client.apiKey)
+	}
+}
 
 func TestCompleteUsesDefaultClientWithoutHardTimeout(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

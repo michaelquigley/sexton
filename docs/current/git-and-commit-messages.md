@@ -44,4 +44,4 @@ The message for a dirty tree is generated per cycle:
 
 **Every failure in that chain degrades to the mechanical fallback** rather than failing the sync: no LLM configured, a diff that can't be read, an HTTP or API failure, or an empty completion. The fallback is `git.GenerateCommitMessage`, which counts the status lists into a `sexton: add 2 files, update 1 file` line. Only context cancellation propagates, because that means shutdown rather than a bad response.
 
-The LLM client speaks OpenAI-compatible chat completions over plain `net/http` — a system message, a user message, `max_tokens`, and a bearer token when an API key env var is configured. Any non-200 is an error carrying the response body.
+The LLM client speaks OpenAI-compatible chat completions over plain `net/http` — a system message, a user message, `max_tokens`, and a bearer token when an API key is configured, from the env var named by `api_key_env` or directly in `api_key`. Any non-200 is an error carrying the response body.
