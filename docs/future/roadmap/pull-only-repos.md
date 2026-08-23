@@ -1,6 +1,6 @@
 ---
 title: pull-only repos
-state: researching
+state: building
 created: 2026-08-13
 tags: [feature, spike]
 milestone: v0.1.x
