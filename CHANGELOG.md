@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## v0.1.3
+
 FEATURE: Per-repo commit policy now controls which local changes sexton may commit: `all` selects the whole tree, `regions` selects configured repo-relative directory prefixes, and `none` leaves commit creation to the operator. Unselected changes enter the new `attention` state with deduplicated path alerts; tracked unselected work pauses pulls without stopping pushes, and Mattermost attention alerts can mention configured users.
 
 CHANGE: **Breaking:** repositories without an explicit `commit_policy` now default to `none` instead of the old implicit commit-everything behavior. Sexton warns once at startup for each defaulted repo, while a malformed `.sexton.yaml` forces that repo to `none` and emits a distinct warning. Set `commit_policy: all` to retain the previous behavior.
