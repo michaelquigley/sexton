@@ -8,6 +8,7 @@ const (
 	Error
 	Snoozed
 	Holdout
+	Attention
 )
 
 func (s State) String() string {
@@ -22,6 +23,8 @@ func (s State) String() string {
 		return "snoozed"
 	case Holdout:
 		return "holdout"
+	case Attention:
+		return "attention"
 	default:
 		return "unknown"
 	}

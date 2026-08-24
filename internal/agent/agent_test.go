@@ -27,15 +27,26 @@ type stubGit struct {
 	unmergedErr     error
 	status          *git.Status
 	statusErr       error
+	showNameStatus  *git.Status
+	showNameErr     error
 	stageErr        error
 	commitErr       error
+	rewordErr       error
 	pullErr         error
 	pulled          bool
 	pushErr         error
 	rebaseAbortErr  error
 	rebaseAborts    int
 	stageCalls      int
+	stageRegions    [][]string
 	commitCalls     int
+	commitOnlyCalls int
+	commitMessages  []string
+	commitRegions   [][]string
+	rewordCalls     int
+	rewordBranch    string
+	rewordOldSHA    string
+	rewordMessage   string
 	pullCalls       int
 	pushCalls       int
 	shortHEADCalls  int
@@ -47,9 +58,18 @@ type stubGit struct {
 	diffStagedErr   error
 	diffStat        string
 	diffStatErr     error
+	showSHAs        []string
+	showStatSHAs    []string
+	callSequence    []string
 	onIsDirty       func(context.Context)
+	onStatus        func(context.Context)
 	onStageAll      func(context.Context)
+	onStageRegions  func(context.Context, []string)
 	onCommit        func(context.Context)
+	onCommitOnly    func(context.Context, []string)
+	onShow          func(context.Context, string)
+	onShowName      func(context.Context, string)
+	onReword        func(context.Context)
 	onPull          func(context.Context)
 	onPush          func(context.Context)
 	onShortHEAD     func(context.Context)
@@ -65,30 +85,68 @@ func (g *stubGit) IsDirty(ctx context.Context) (bool, error) {
 func (g *stubGit) IsDirtyTracked(context.Context) (bool, error) {
 	return g.dirtyTracked, g.dirtyTrackedErr
 }
-func (g *stubGit) Unmerged(context.Context) ([]string, error)  { return g.unmerged, g.unmergedErr }
-func (g *stubGit) Status(context.Context) (*git.Status, error) { return g.status, g.statusErr }
+func (g *stubGit) Unmerged(context.Context) ([]string, error) { return g.unmerged, g.unmergedErr }
+func (g *stubGit) Status(ctx context.Context) (*git.Status, error) {
+	g.callSequence = append(g.callSequence, "status")
+	if g.onStatus != nil {
+		g.onStatus(ctx)
+	}
+	if g.onIsDirty != nil {
+		g.onIsDirty(ctx)
+	}
+	if g.dirtyErr != nil {
+		return nil, g.dirtyErr
+	}
+	if g.status != nil {
+		return g.status, g.statusErr
+	}
+	if g.dirty {
+		status := git.NewStatus()
+		status.Modified = append(status.Modified, "notes.md")
+		status.Entries = append(status.Entries, git.StatusEntry{Path: "notes.md", X: ' ', Y: 'M'})
+		return status, g.statusErr
+	}
+	return git.NewStatus(), g.statusErr
+}
 func (g *stubGit) StageAll(ctx context.Context) error {
+	g.callSequence = append(g.callSequence, "stage-all")
 	g.stageCalls++
 	if g.onStageAll != nil {
 		g.onStageAll(ctx)
 	}
 	return g.stageErr
 }
-func (g *stubGit) StageRegions(context.Context, []string) error {
+func (g *stubGit) StageRegions(ctx context.Context, regions []string) error {
+	g.callSequence = append(g.callSequence, "stage-regions")
 	g.stageCalls++
+	g.stageRegions = append(g.stageRegions, append([]string(nil), regions...))
+	if g.onStageRegions != nil {
+		g.onStageRegions(ctx, regions)
+	}
 	return g.stageErr
 }
-func (g *stubGit) Commit(ctx context.Context, _ string) (string, error) {
+func (g *stubGit) Commit(ctx context.Context, message string) (string, error) {
+	g.callSequence = append(g.callSequence, "commit")
 	g.commitCalls++
+	g.commitMessages = append(g.commitMessages, message)
 	if g.onCommit != nil {
 		g.onCommit(ctx)
 	}
 	return "created-sha", g.commitErr
 }
-func (g *stubGit) CommitOnly(ctx context.Context, _ string, _ []string) (string, error) {
-	return g.Commit(ctx, "")
+func (g *stubGit) CommitOnly(ctx context.Context, message string, regions []string) (string, error) {
+	g.callSequence = append(g.callSequence, "commit-only")
+	g.commitCalls++
+	g.commitOnlyCalls++
+	g.commitMessages = append(g.commitMessages, message)
+	g.commitRegions = append(g.commitRegions, append([]string(nil), regions...))
+	if g.onCommitOnly != nil {
+		g.onCommitOnly(ctx, regions)
+	}
+	return "created-sha", g.commitErr
 }
 func (g *stubGit) Pull(ctx context.Context, _ string, _ string) (bool, error) {
+	g.callSequence = append(g.callSequence, "pull")
 	g.pullCalls++
 	if g.onPull != nil {
 		g.onPull(ctx)
@@ -96,14 +154,25 @@ func (g *stubGit) Pull(ctx context.Context, _ string, _ string) (bool, error) {
 	return g.pulled, g.pullErr
 }
 func (g *stubGit) Push(ctx context.Context, _ string, _ string) error {
+	g.callSequence = append(g.callSequence, "push")
 	g.pushCalls++
 	if g.onPush != nil {
 		g.onPush(ctx)
 	}
 	return g.pushErr
 }
-func (g *stubGit) RebaseAbort(context.Context) error                          { g.rebaseAborts++; return g.rebaseAbortErr }
-func (g *stubGit) RewordCommit(context.Context, string, string, string) error { return nil }
+func (g *stubGit) RebaseAbort(context.Context) error { g.rebaseAborts++; return g.rebaseAbortErr }
+func (g *stubGit) RewordCommit(ctx context.Context, branch, oldSHA, message string) error {
+	g.callSequence = append(g.callSequence, "reword")
+	g.rewordCalls++
+	g.rewordBranch = branch
+	g.rewordOldSHA = oldSHA
+	g.rewordMessage = message
+	if g.onReword != nil {
+		g.onReword(ctx)
+	}
+	return g.rewordErr
+}
 func (g *stubGit) ShortHEAD(ctx context.Context) (string, error) {
 	g.shortHEADCalls++
 	if g.onShortHEAD != nil {
@@ -116,18 +185,41 @@ func (g *stubGit) CommitTime(context.Context) (time.Time, error) {
 }
 func (g *stubGit) DiffStaged(context.Context) (string, error) { return g.diffStaged, g.diffStagedErr }
 func (g *stubGit) DiffStat(context.Context) (string, error)   { return g.diffStat, g.diffStatErr }
-func (g *stubGit) Show(context.Context, string) (string, error) {
+func (g *stubGit) Show(ctx context.Context, sha string) (string, error) {
+	g.callSequence = append(g.callSequence, "show")
+	g.showSHAs = append(g.showSHAs, sha)
+	if g.onShow != nil {
+		g.onShow(ctx, sha)
+	}
 	return g.diffStaged, g.diffStagedErr
 }
-func (g *stubGit) ShowStat(context.Context, string) (string, error) {
+func (g *stubGit) ShowStat(_ context.Context, sha string) (string, error) {
+	g.callSequence = append(g.callSequence, "show-stat")
+	g.showStatSHAs = append(g.showStatSHAs, sha)
 	return g.diffStat, g.diffStatErr
 }
-func (g *stubGit) ShowNameStatus(context.Context, string) (*git.Status, error) {
+func (g *stubGit) ShowNameStatus(ctx context.Context, sha string) (*git.Status, error) {
+	g.callSequence = append(g.callSequence, "show-name-status")
+	if g.onShowName != nil {
+		g.onShowName(ctx, sha)
+	}
+	if g.showNameStatus != nil || g.showNameErr != nil {
+		return g.showNameStatus, g.showNameErr
+	}
 	return g.status, g.statusErr
 }
 
 type recordingAlerter struct {
 	events []AlertEvent
+}
+
+func modifiedStatus(paths ...string) *git.Status {
+	status := git.NewStatus()
+	for _, path := range paths {
+		status.Modified = append(status.Modified, path)
+		status.Entries = append(status.Entries, git.StatusEntry{Path: path, X: ' ', Y: 'M'})
+	}
+	return status
 }
 
 func (a *recordingAlerter) Alert(_ context.Context, event AlertEvent) error {
@@ -151,6 +243,7 @@ func newAgentForTest(g gitClient, alerter Alerter) *Agent {
 			PollInterval: time.Second,
 			Branch:       "main",
 			Remote:       "origin",
+			CommitPolicy: config.PolicyAll,
 			Hooks:        &config.ResolvedHooks{},
 		},
 		git:     g,
@@ -200,8 +293,8 @@ func TestSyncFailureSetsErrorAndSuccessClearsIt(t *testing.T) {
 	if a.LastSync().IsZero() {
 		t.Fatal("expected last sync to be recorded")
 	}
-	if len(alerts.events) != 1 {
-		t.Fatalf("expected no extra alerts after recovery, got %d", len(alerts.events))
+	if len(alerts.events) != 2 || alerts.events[1].Message != "recovered from error" {
+		t.Fatalf("expected recovery alert, got %#v", alerts.events)
 	}
 }
 
@@ -843,7 +936,7 @@ func TestStopCancelsSyncBlockedInHook(t *testing.T) {
 
 	g := &stubGit{
 		dirty:  true,
-		status: &git.Status{},
+		status: modifiedStatus("notes.md"),
 	}
 	alerts := &recordingAlerter{}
 	a := newAgentForTest(g, alerts)
@@ -885,7 +978,7 @@ func TestStopCancelsSyncBlockedInLLMRequest(t *testing.T) {
 
 	g := &stubGit{
 		dirty:      true,
-		status:     &git.Status{},
+		status:     modifiedStatus("notes.md"),
 		diffStaged: "diff",
 	}
 	alerts := &recordingAlerter{}
@@ -902,8 +995,8 @@ func TestStopCancelsSyncBlockedInLLMRequest(t *testing.T) {
 
 	stopAgentAndWait(t, a)
 
-	if g.commitCalls != 0 {
-		t.Fatalf("expected commit to be skipped after LLM cancellation, got %d calls", g.commitCalls)
+	if g.commitCalls != 1 {
+		t.Fatalf("expected placeholder commit before LLM cancellation, got %d calls", g.commitCalls)
 	}
 	if g.pullCalls != 0 {
 		t.Fatalf("expected pull to be skipped after LLM cancellation, got %d calls", g.pullCalls)

@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -31,11 +33,12 @@ type Agent struct {
 	cancel   context.CancelFunc
 	stopOnce sync.Once
 
-	snoozeTimer   *time.Timer
-	snoozeUntil   time.Time
-	snoozePending bool
-	holdoutUntil  time.Time
-	errorDetail   string
+	snoozeTimer     *time.Timer
+	snoozeUntil     time.Time
+	snoozePending   bool
+	holdoutUntil    time.Time
+	errorDetail     string
+	attentionDetail string
 
 	lastSync   time.Time
 	lastCommit string
@@ -44,7 +47,6 @@ type Agent struct {
 
 type gitClient interface {
 	Branch(ctx context.Context) (string, error)
-	IsDirty(ctx context.Context) (bool, error)
 	IsDirtyTracked(ctx context.Context) (bool, error)
 	Unmerged(ctx context.Context) ([]string, error)
 	Status(ctx context.Context) (*git.Status, error)
@@ -58,8 +60,6 @@ type gitClient interface {
 	RewordCommit(ctx context.Context, branch, oldSHA, message string) error
 	ShortHEAD(ctx context.Context) (string, error)
 	CommitTime(ctx context.Context) (time.Time, error)
-	DiffStaged(ctx context.Context) (string, error)
-	DiffStat(ctx context.Context) (string, error)
 	Show(ctx context.Context, sha string) (string, error)
 	ShowStat(ctx context.Context, sha string) (string, error)
 	ShowNameStatus(ctx context.Context, sha string) (*git.Status, error)
@@ -149,6 +149,12 @@ func (a *Agent) ErrorDetail() string {
 	return a.errorDetail
 }
 
+func (a *Agent) AttentionDetail() string {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return a.attentionDetail
+}
+
 func (a *Agent) SnoozeRemaining() time.Duration {
 	a.mu.Lock()
 	defer a.mu.Unlock()
@@ -187,13 +193,8 @@ func (a *Agent) TriggerSync() error {
 		a.mu.Unlock()
 		return fmt.Errorf("agent is in holdout until '%s'", holdoutUntil.Format(time.RFC3339))
 	}
-	if a.state == Snoozed && !a.manualSnoozeActiveLocked(now) {
-		a.clearExpiredSnoozeLocked()
-		if a.errorDetail != "" {
-			a.state = Error
-		} else {
-			a.state = Watching
-		}
+	if a.state != Syncing {
+		a.restingStateLocked()
 	}
 	if a.state == Snoozed {
 		a.mu.Unlock()
@@ -211,17 +212,11 @@ func (a *Agent) TriggerSync() error {
 // Snooze pauses the agent for the given duration.
 func (a *Agent) Snooze(d time.Duration) (time.Time, error) {
 	a.mu.Lock()
-	now := a.now()
 	until := a.startSnoozeLocked(d)
 	if a.state == Syncing {
 		a.snoozePending = true
-	} else if activeHoldout, holdoutUntil := a.holdoutStatusAt(now); activeHoldout {
-		a.state = Holdout
-		a.holdoutUntil = holdoutUntil
-		a.snoozePending = false
 	} else {
-		a.state = Snoozed
-		a.snoozePending = false
+		a.restingStateLocked()
 	}
 	a.mu.Unlock()
 
@@ -259,14 +254,13 @@ func (a *Agent) Resume() (string, error) {
 	case activeHoldout:
 		a.holdoutUntil = holdoutUntil
 		if a.state != Syncing {
-			a.state = Holdout
+			a.restingStateLocked()
 		}
 		message = fmt.Sprintf("holdout remains active until %s", holdoutUntil.Format(time.RFC3339))
 	case a.state == Syncing:
 		queueSync = true
 	default:
-		a.state = Watching
-		a.holdoutUntil = time.Time{}
+		a.restingStateLocked()
 		queueSync = true
 	}
 	a.mu.Unlock()
@@ -323,22 +317,19 @@ func (a *Agent) sync() {
 	now := a.now()
 	if activeHoldout, holdoutUntil := a.holdoutStatusAt(now); activeHoldout {
 		a.holdoutUntil = holdoutUntil
-		a.state = Holdout
+		a.restingStateLocked()
 		a.mu.Unlock()
 		return
 	}
-	if a.state == Snoozed && !a.manualSnoozeActiveLocked(now) {
-		a.clearExpiredSnoozeLocked()
-		if a.errorDetail != "" {
-			a.state = Error
-		} else {
-			a.state = Watching
-		}
-	}
-	if a.state == Snoozed {
+	if a.manualSnoozeActiveLocked(now) {
+		a.restingStateLocked()
 		a.mu.Unlock()
 		return
 	}
+	if a.snoozePending || !a.snoozeUntil.IsZero() {
+		a.restingStateLocked()
+	}
+	hadError := a.errorDetail != ""
 	a.holdoutUntil = time.Time{}
 	a.state = Syncing
 	a.mu.Unlock()
@@ -357,26 +348,26 @@ func (a *Agent) sync() {
 		return
 	}
 
-	var status *git.Status
-	var commitMsg string
-
-	dirty, err := a.git.IsDirty(ctx)
+	status, err := a.git.Status(ctx)
 	if err != nil {
 		if a.syncCanceled(ctx, err) {
 			return
 		}
-		a.setError("failed to check status", err)
+		a.setError("failed to read git status", err)
 		return
 	}
 	if a.shouldAbortSync(ctx) {
 		return
 	}
+	if status == nil {
+		status = git.NewStatus()
+	}
+	partition := partitionStatus(status, a.cfg.CommitPolicy, a.cfg.CommitRegions)
 
-	if dirty {
+	if status.HasChanges() {
 		// refuse to stage a tree carrying unresolved conflict markers. a merge or
 		// cherry-pick conflict leaves the repo on its branch, so validateBranch
-		// above does not catch it, and 'git add -A' would otherwise commit the
-		// markers and push them to the remote.
+		// above does not catch it, and staging would otherwise commit the markers.
 		unmerged, err := a.git.Unmerged(ctx)
 		if err != nil {
 			if a.syncCanceled(ctx, err) {
@@ -392,7 +383,12 @@ func (a *Agent) sync() {
 		if a.shouldAbortSync(ctx) {
 			return
 		}
+	}
 
+	var committedStatus *git.Status
+	var commitMsg string
+	createdChange := false
+	if partition.hasSelectedChanges {
 		if err := a.runHooks(ctx, "pre_commit", a.cfg.Hooks.PreCommit); err != nil {
 			if a.syncCanceled(ctx, err) {
 				return
@@ -404,67 +400,99 @@ func (a *Agent) sync() {
 			return
 		}
 
-		if err := a.git.StageAll(ctx); err != nil {
-			if a.syncCanceled(ctx, err) {
+		var stageErr error
+		switch a.cfg.CommitPolicy {
+		case config.PolicyAll:
+			stageErr = a.git.StageAll(ctx)
+		case config.PolicyRegions:
+			stageErr = a.git.StageRegions(ctx, partition.regions)
+		}
+		if stageErr != nil {
+			if a.syncCanceled(ctx, stageErr) {
 				return
 			}
-			a.setError("staging failed", err)
+			a.setError("staging failed", stageErr)
 			return
 		}
 		if a.shouldAbortSync(ctx) {
 			return
 		}
 
-		status, err = a.git.Status(ctx)
-		if err != nil {
+		var createdSHA string
+		switch a.cfg.CommitPolicy {
+		case config.PolicyAll:
+			createdSHA, err = a.git.Commit(ctx, placeholderCommitMessage)
+		case config.PolicyRegions:
+			createdSHA, err = a.git.CommitOnly(ctx, placeholderCommitMessage, partition.regions)
+		}
+		if err != nil && !errors.Is(err, git.ErrNothingToCommit) {
 			if a.syncCanceled(ctx, err) {
 				return
 			}
-			a.setError("failed to read git status", err)
+			a.setError("commit failed", err)
 			return
 		}
+		if errors.Is(err, git.ErrNothingToCommit) {
+			err = nil
+		}
+		if createdSHA != "" {
+			createdChange = true
+			committedStatus, err = a.git.ShowNameStatus(ctx, createdSHA)
+			if err != nil {
+				if a.syncCanceled(ctx, err) {
+					return
+				}
+				a.setError("failed to describe commit", err)
+				return
+			}
 
-		dl.Infof("generating commit message for '%s'", a.cfg.Name)
-		var msg string
-		msg, err = a.generateCommitMessage(ctx, status)
-		if err != nil {
-			if a.syncCanceled(ctx, err) {
+			dl.Infof("generating commit message for '%s'", a.cfg.Name)
+			commitMsg, err = a.generateCommitMessage(ctx, createdSHA, committedStatus)
+			if err != nil {
+				if a.syncCanceled(ctx, err) {
+					return
+				}
+				a.setError("commit message generation failed", err)
 				return
 			}
-			a.setError("commit message generation failed", err)
-			return
-		}
-		commitMsg = msg
-		if a.shouldAbortSync(ctx) {
-			return
-		}
 
-		if _, err := a.git.Commit(ctx, msg); err != nil {
-			if a.syncCanceled(ctx, err) {
+			if err := a.git.RewordCommit(ctx, a.cfg.Branch, createdSHA, commitMsg); err != nil {
+				if a.syncCanceled(ctx, err) {
+					return
+				}
+				a.setError("commit reword failed", err)
 				return
 			}
-			if !errors.Is(err, git.ErrNothingToCommit) {
-				a.setError("commit failed", err)
+			if a.shouldAbortSync(ctx) {
 				return
 			}
-		}
-		if a.shouldAbortSync(ctx) {
-			return
-		}
 
-		if err := a.runHooks(ctx, "post_commit", a.cfg.Hooks.PostCommit); err != nil {
-			if a.syncCanceled(ctx, err) {
+			if err := a.runHooks(ctx, "post_commit", a.cfg.Hooks.PostCommit); err != nil {
+				if a.syncCanceled(ctx, err) {
+					return
+				}
+				a.setError("post_commit hook failed", err)
 				return
 			}
-			a.setError("post_commit hook failed", err)
-			return
-		}
-		if a.shouldAbortSync(ctx) {
-			return
+			if a.shouldAbortSync(ctx) {
+				return
+			}
 		}
 	}
 
-	pulled, err := a.git.Pull(ctx, a.cfg.Remote, a.cfg.Branch)
+	if len(partition.unselectedPaths) > 0 {
+		a.setAttention(formatAttentionDetail(partition.unselectedPaths, partition.hasTrackedUnselected))
+	} else if a.clearAttention() {
+		a.alert("info", "local changes resolved", nil)
+	}
+	if a.shouldAbortSync(ctx) {
+		return
+	}
+
+	pulled := false
+	if !partition.hasTrackedUnselected {
+		pulled, err = a.git.Pull(ctx, a.cfg.Remote, a.cfg.Branch)
+	}
 	if err != nil {
 		// a conflict is handled ahead of the cancellation check: shutdown must not
 		// leave the repo mid-rebase, and the abort runs on its own context because
@@ -490,19 +518,16 @@ func (a *Agent) sync() {
 			if a.shouldAbortSync(ctx) {
 				return
 			}
-			// no remote configured — commit-only mode
-			a.completeSync("", time.Time{})
+			a.finishSuccessfulSync("", time.Time{}, hadError, createdChange, committedStatus, commitMsg)
 			return
 		}
 		if errors.Is(err, git.ErrDirtyWorkingTree) {
 			if a.shouldAbortSync(ctx) {
 				return
 			}
-			// shouldn't happen since we committed above, but handle gracefully
-			a.mu.Lock()
-			a.state = Watching
-			a.errorDetail = ""
-			a.mu.Unlock()
+			// tracked dirt appeared after the partition read. the next poll will
+			// re-partition it; this cycle ends without manufacturing an error.
+			a.restAfterIncompleteSync()
 			return
 		}
 		a.setError("pull failed", err)
@@ -544,7 +569,7 @@ func (a *Agent) sync() {
 			if a.shouldAbortSync(ctx) {
 				return
 			}
-			a.completeSync("", time.Time{})
+			a.finishSuccessfulSync("", time.Time{}, hadError, createdChange, committedStatus, commitMsg)
 			return
 		}
 		a.setError("push failed", err)
@@ -589,20 +614,92 @@ func (a *Agent) sync() {
 		return
 	}
 
-	a.mu.Lock()
-	wasError := a.state == Error
-	a.mu.Unlock()
+	a.finishSuccessfulSync(sha, commitTime, hadError, createdChange, committedStatus, commitMsg)
+}
 
-	a.completeSync(sha, commitTime)
+const placeholderCommitMessage = "sexton: pending summary"
 
-	dl.Debugf("sync complete for '%s'", a.cfg.Name)
+type policyPartition struct {
+	hasSelectedChanges   bool
+	regions              []string
+	unselectedPaths      []string
+	hasTrackedUnselected bool
+}
 
-	if wasError {
-		a.alert("info", "recovered from error", nil)
+func partitionStatus(status *git.Status, policy string, regions []string) policyPartition {
+	if status == nil {
+		return policyPartition{}
 	}
-	if dirty {
-		a.alertWithFiles("info", "sync complete ("+sha+")", status, commitMsg)
+
+	var partition policyPartition
+	selectedRegions := make(map[string]bool)
+	unselectedPaths := make(map[string]bool)
+	for _, entry := range status.Entries {
+		endpoints := []string{entry.Path}
+		if (entry.X == 'R' || entry.Y == 'R') && entry.OldPath != "" {
+			endpoints = append(endpoints, entry.OldPath)
+		}
+		for _, path := range endpoints {
+			inside := policy == config.PolicyAll
+			if policy == config.PolicyRegions {
+				for _, region := range regions {
+					if strings.HasPrefix(path, region) {
+						inside = true
+						selectedRegions[region] = true
+					}
+				}
+			}
+			if inside {
+				partition.hasSelectedChanges = true
+				continue
+			}
+			unselectedPaths[path] = true
+			if entry.IsTracked() {
+				partition.hasTrackedUnselected = true
+			}
+		}
 	}
+
+	for _, region := range regions {
+		if selectedRegions[region] {
+			partition.regions = append(partition.regions, region)
+		}
+	}
+	for path := range unselectedPaths {
+		partition.unselectedPaths = append(partition.unselectedPaths, path)
+	}
+	sort.Strings(partition.unselectedPaths)
+	return partition
+}
+
+func formatAttentionDetail(paths []string, hasTrackedUnselected bool) string {
+	unique := make(map[string]bool, len(paths))
+	for _, path := range paths {
+		unique[path] = true
+	}
+	sorted := make([]string, 0, len(unique))
+	for path := range unique {
+		sorted = append(sorted, path)
+	}
+	sort.Strings(sorted)
+
+	const pathLimit = 10
+	visible := sorted
+	if len(visible) > pathLimit {
+		visible = visible[:pathLimit]
+	}
+	quoted := make([]string, 0, len(visible))
+	for _, path := range visible {
+		quoted = append(quoted, strconv.Quote(path))
+	}
+	detail := strings.Join(quoted, ", ")
+	if hidden := len(sorted) - len(visible); hidden > 0 {
+		detail += fmt.Sprintf(", +%d more", hidden)
+	}
+	if hasTrackedUnselected {
+		detail += " (pulls paused)"
+	}
+	return detail
 }
 
 func (a *Agent) startSnoozeLocked(d time.Duration) time.Time {
@@ -640,6 +737,14 @@ func (a *Agent) clearSnoozeLocked() {
 }
 
 func (a *Agent) clearExpiredSnoozeLocked() {
+	if a.snoozeTimer != nil {
+		if !a.snoozeTimer.Stop() {
+			select {
+			case <-a.snoozeTimer.C:
+			default:
+			}
+		}
+	}
 	a.snoozeTimer = nil
 	a.snoozeUntil = time.Time{}
 	a.snoozePending = false
@@ -669,8 +774,11 @@ func (a *Agent) pauseIfRequested() bool {
 	if !a.snoozePending {
 		return false
 	}
-	a.state = Snoozed
-	a.snoozePending = false
+	if !a.manualSnoozeActiveLocked(now) {
+		a.clearExpiredSnoozeLocked()
+		return false
+	}
+	a.restingStateLocked()
 	a.drainSyncRequestsLocked()
 	return true
 }
@@ -684,7 +792,6 @@ func (a *Agent) shouldAbortSync(ctx context.Context) bool {
 
 func (a *Agent) completeSync(sha string, commitTime time.Time) {
 	a.mu.Lock()
-	a.state = Watching
 	a.lastSync = a.now()
 	if sha != "" {
 		a.lastCommit = sha
@@ -692,9 +799,57 @@ func (a *Agent) completeSync(sha string, commitTime time.Time) {
 	if !commitTime.IsZero() {
 		a.lastChange = commitTime
 	}
-	a.holdoutUntil = time.Time{}
 	a.errorDetail = ""
+	a.restingStateLocked()
 	a.mu.Unlock()
+}
+
+func (a *Agent) finishSuccessfulSync(sha string, commitTime time.Time, hadError, createdChange bool, status *git.Status, commitMessage string) {
+	a.completeSync(sha, commitTime)
+	dl.Debugf("sync complete for '%s'", a.cfg.Name)
+	if hadError {
+		a.alert("info", "recovered from error", nil)
+	}
+	if createdChange {
+		a.alertWithFiles("info", "sync complete", status, commitMessage)
+	}
+}
+
+func (a *Agent) restAfterIncompleteSync() {
+	a.mu.Lock()
+	a.restingStateLocked()
+	a.mu.Unlock()
+}
+
+// restingStateLocked is the sole chooser for a terminal, non-syncing state.
+// the caller must hold a.mu.
+func (a *Agent) restingStateLocked() State {
+	now := a.now()
+	if activeHoldout, holdoutUntil := a.holdoutStatusAt(now); activeHoldout {
+		a.holdoutUntil = holdoutUntil
+		a.state = Holdout
+		return a.state
+	}
+	a.holdoutUntil = time.Time{}
+
+	if a.manualSnoozeActiveLocked(now) {
+		a.snoozePending = false
+		a.state = Snoozed
+		return a.state
+	}
+	if a.snoozePending || !a.snoozeUntil.IsZero() {
+		a.clearExpiredSnoozeLocked()
+	}
+
+	switch {
+	case a.errorDetail != "":
+		a.state = Error
+	case a.attentionDetail != "":
+		a.state = Attention
+	default:
+		a.state = Watching
+	}
+	return a.state
 }
 
 func (a *Agent) validateBranch(ctx context.Context) error {
@@ -710,24 +865,41 @@ func (a *Agent) validateBranch(ctx context.Context) error {
 
 func (a *Agent) setError(message string, err error) {
 	detail := formatErrorDetail(message, err)
-	now := a.now()
-	activeHoldout, holdoutUntil := a.holdoutStatusAt(now)
 
 	a.mu.Lock()
 	shouldAlert := a.errorDetail != detail
-	if activeHoldout {
-		a.state = Holdout
-		a.holdoutUntil = holdoutUntil
-	} else {
-		a.state = Error
-		a.holdoutUntil = time.Time{}
-	}
 	a.errorDetail = detail
+	a.restingStateLocked()
 	a.mu.Unlock()
 
 	if shouldAlert {
 		a.alert("error", message, err)
 	}
+}
+
+func (a *Agent) setAttention(detail string) {
+	a.mu.Lock()
+	shouldAlert := a.attentionDetail != detail
+	a.attentionDetail = detail
+	a.mu.Unlock()
+
+	if shouldAlert {
+		a.alert("attention", detail, nil)
+	}
+}
+
+func (a *Agent) clearAttention() bool {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if a.attentionDetail == "" {
+		return false
+	}
+	a.clearAttentionLocked()
+	return true
+}
+
+func (a *Agent) clearAttentionLocked() {
+	a.attentionDetail = ""
 }
 
 func formatErrorDetail(message string, err error) string {
@@ -785,7 +957,7 @@ const rebaseAbortTimeout = 30 * time.Second
 
 const maxDiffBytes = 32 * 1024
 
-func (a *Agent) generateCommitMessage(ctx context.Context, status *git.Status) (string, error) {
+func (a *Agent) generateCommitMessage(ctx context.Context, sha string, status *git.Status) (string, error) {
 	fallback := git.GenerateCommitMessage(status)
 
 	if a.llm == nil {
@@ -793,17 +965,17 @@ func (a *Agent) generateCommitMessage(ctx context.Context, status *git.Status) (
 		return fallback, nil
 	}
 
-	diff, err := a.git.DiffStaged(ctx)
+	diff, err := a.git.Show(ctx, sha)
 	if err != nil {
 		if a.syncCanceled(ctx, err) {
 			return "", err
 		}
-		dl.Warnf("failed to get staged diff for '%s': %v", a.cfg.Name, err)
+		dl.Warnf("failed to get commit diff for '%s': %v", a.cfg.Name, err)
 		return fallback, nil
 	}
 
 	if len(diff) > maxDiffBytes {
-		diff, err = a.git.DiffStat(ctx)
+		diff, err = a.git.ShowStat(ctx, sha)
 		if err != nil {
 			if a.syncCanceled(ctx, err) {
 				return "", err
@@ -846,7 +1018,7 @@ func (a *Agent) clearCanceledSyncState(ctx context.Context) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	if a.state == Syncing {
-		a.state = Watching
+		a.restingStateLocked()
 	}
 }
 
@@ -902,16 +1074,8 @@ func (a *Agent) handleHoldoutTransition() {
 			a.drainSyncRequestsLocked()
 		}
 	} else {
-		a.holdoutUntil = time.Time{}
 		if a.state == Holdout {
-			switch {
-			case a.manualSnoozeActiveLocked(now):
-				a.state = Snoozed
-			case a.errorDetail != "":
-				a.state = Error
-			default:
-				a.state = Watching
-			}
+			a.restingStateLocked()
 		}
 	}
 	a.mu.Unlock()
@@ -925,24 +1089,12 @@ func (a *Agent) handleHoldoutTransition() {
 }
 
 func (a *Agent) handleSnoozeExpiry() {
-	now := a.now()
-	activeHoldout, holdoutUntil := a.holdoutStatusAt(now)
-
 	a.mu.Lock()
 	a.clearExpiredSnoozeLocked()
 	queueSync := false
-	if activeHoldout {
-		a.holdoutUntil = holdoutUntil
-		if a.state != Syncing {
-			a.state = Holdout
-		}
-	} else if a.state == Snoozed {
-		if a.errorDetail != "" {
-			a.state = Error
-		} else {
-			a.state = Watching
-			queueSync = true
-		}
+	if a.state != Syncing {
+		state := a.restingStateLocked()
+		queueSync = state == Watching || state == Attention
 	}
 	a.mu.Unlock()
 
