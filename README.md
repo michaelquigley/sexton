@@ -81,6 +81,7 @@ alerts:
       token_env: "SEXTON_MATTERMOST_TOKEN"
       channel_id: "alerts-channel-id"
       mention_users: [michael]
+      dm_users: [michael]
 
 repos:
   - path: ~/grimoire
@@ -141,6 +142,7 @@ hooks:
 | `commit_regions` | global, repo | -- | Repo-relative directory prefixes selected by `commit_policy: regions`; the first non-empty cascade layer replaces the whole list |
 | `holdout_windows` | global, repo | -- | Daily local-time windows where sync is paused; each entry is `{start,end}` in `HH:MM` 24-hour format |
 | `alerts[].mattermost.mention_users` | global | -- | Mattermost usernames to mention on `attention` alerts; other alert severities do not mention them |
+| `alerts[].mattermost.dm_users` | global | -- | Mattermost usernames who receive `attention` alerts as direct messages instead of the channel post; falls back to the channel (with mentions) if a DM cannot be delivered |
 | `hooks.pre_commit` | global, repo | -- | Commands to run before staging and committing |
 | `hooks.post_commit` | global, repo | -- | Commands to run after a successful commit |
 | `hooks.post_pull` | global, repo | -- | Commands to run after a pull changes the local checkout |

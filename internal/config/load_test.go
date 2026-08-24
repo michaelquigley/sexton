@@ -556,3 +556,33 @@ func TestResolveAllowsInertCommitRegions(t *testing.T) {
 		})
 	}
 }
+
+func TestLoadBindsMattermostDMUsers(t *testing.T) {
+	content := `
+alerts:
+  - type: mattermost
+    mattermost:
+      url: https://mattermost.example.com
+      token: secret
+      channel_id: alerts
+      dm_users:
+        - michael
+repos:
+  - path: /tmp/repo
+`
+	configPath := filepath.Join(t.TempDir(), "config.yaml")
+	if err := os.WriteFile(configPath, []byte(strings.TrimSpace(content)), 0o644); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+
+	cfg, err := Load(configPath)
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if len(cfg.Alerts) != 1 || cfg.Alerts[0].Mattermost == nil {
+		t.Fatalf("alerts = %#v", cfg.Alerts)
+	}
+	if got := cfg.Alerts[0].Mattermost.DMUsers; !reflect.DeepEqual(got, []string{"michael"}) {
+		t.Fatalf("dm users = %#v", got)
+	}
+}

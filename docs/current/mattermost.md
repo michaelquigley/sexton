@@ -7,7 +7,7 @@ created: 2026-08-14
 
 An optional second control plane, reached over a websocket instead of the local socket, and an alert sink in the same package. One `alerts` entry of `type: mattermost` gives both: outbound alerts posted to a channel, and inbound commands accepted from that channel or a DM.
 
-The client is raw `net/http` plus `gorilla/websocket`, deliberately not the official Mattermost Go client — the API surface sexton needs is four endpoints (`users/me`, `users/{id}`, `posts`, `websocket`), and the official library's dependency tree costs more than that is worth.
+The client is raw `net/http` plus `gorilla/websocket`, deliberately not the official Mattermost Go client — the API surface sexton needs is six endpoints (`users/me`, `users/{id}`, `users/username/{name}`, `channels/direct`, `posts`, `websocket`), and the official library's dependency tree costs more than that is worth.
 
 ## startup
 
@@ -30,6 +30,8 @@ Alerts are posted only to the configured `channel_id`. Command responses go back
 
 `mention_users` is an outbound list of usernames. Attention alerts prepend those configured `@mentions` and an `attention` marker; warnings, errors, and informational alerts ignore the list. Repo names, details, commit messages, and filenames are rendered so their markdown and `@tokens` are inert — configured usernames are the only live mentions an attention alert can carry.
 
+`dm_users` routes attention alerts to direct messages instead. When the list is non-empty, an attention alert is posted to each named user's DM channel with the bot — no mention prefix, since a direct message notifies on its own — and the channel post for that alert is skipped. Every other severity keeps the channel. Usernames resolve lazily on the first attention alert and are cached, as is each DM channel. If any direct delivery fails, the alert falls back to the channel post with the configured mentions and the failure is logged; an attention condition is never lost to a bad username or an API hiccup.
+
 ## commands
 
 `status [repo]`, `sync <repo>`, `snooze <repo> <duration>`, `resume <repo>`, `help`. A bare trigger word returns help; an unrecognized subcommand returns the unknown-command line followed by help; missing arguments return a command-specific message rather than generic help. Repo resolution and its ambiguity errors are the same as the socket path's.
@@ -42,7 +44,7 @@ Status renders as a markdown table — repo, state, branch, last sync, last chan
 
 `agent.MultiAlerter` composes the sinks; a single configured sink is used directly rather than wrapped. Alert events carry severity, repo name, message, optional error, and — for a completed sync — the commit message and the per-category file lists, which the formatter renders as a quoted message with backticked file names.
 
-Mattermost clients are **de-duplicated by identity**, where identity is the server URL plus the auth source (`env:VAR` or the literal token). Two alert entries pointing at the same bot share one client and therefore one websocket, so a command posted once is processed once instead of once per entry. The corollary is enforced at startup: two entries with the same identity but different `allowed_users` or `trigger_words` are a configuration error, because a shared client can only honor one ingress policy. `channel_id` and `mention_users` are egress policy and may differ freely between entries sharing a client — that is one bot alerting into two channels with channel-specific recipients.
+Mattermost clients are **de-duplicated by identity**, where identity is the server URL plus the auth source (`env:VAR` or the literal token). Two alert entries pointing at the same bot share one client and therefore one websocket, so a command posted once is processed once instead of once per entry. The corollary is enforced at startup: two entries with the same identity but different `allowed_users` or `trigger_words` are a configuration error, because a shared client can only honor one ingress policy. `channel_id`, `mention_users`, and `dm_users` are egress policy and may differ freely between entries sharing a client — that is one bot alerting into two channels with channel-specific recipients.
 
 ## drift from the original spec
 

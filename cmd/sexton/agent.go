@@ -198,7 +198,7 @@ func buildAlerter(alerts []*config.AlertConfig, adapter *containerAdapter) (agen
 				mmIngressByIdentity[identity] = ingress
 				mmClients = append(mmClients, mc)
 			}
-			alerters = append(alerters, mattermost.NewAlerter(mc, ac.Mattermost.ChannelID, ac.Mattermost.MentionUsers))
+			alerters = append(alerters, mattermost.NewAlerter(mc, ac.Mattermost.ChannelID, ac.Mattermost.MentionUsers, ac.Mattermost.DMUsers))
 		default:
 			stopMattermostClients(mmClients)
 			return nil, nil, fmt.Errorf("unknown alert type '%s'", ac.Type)

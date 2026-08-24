@@ -3,7 +3,8 @@ researching:
   - broken-remote-reports-sync-success.md
   - semantic-differs.md
 building:
+  - dm-attention-alerts.md
+evaluating:
   - auto-commit-regions.md
   - pull-only-repos.md
-evaluating:
   - onboard-into-terminus-review.md

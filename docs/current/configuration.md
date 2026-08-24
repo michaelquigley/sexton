@@ -53,4 +53,4 @@ The API key is resolved once at startup: a non-empty value from the environment 
 
 ## alerts
 
-The top-level `alerts` list selects the alert sinks: `log` (or an empty type) and `mattermost`. An empty list means log-only. A `mattermost` entry with no `mattermost:` block, or with an empty `channel_id`, fails startup rather than degrading. `mention_users` is an optional list of Mattermost usernames used only for attention alerts. See `mattermost.md` for the remaining Mattermost behavior.
+The top-level `alerts` list selects the alert sinks: `log` (or an empty type) and `mattermost`. An empty list means log-only. A `mattermost` entry with no `mattermost:` block, or with an empty `channel_id`, fails startup rather than degrading. `mention_users` is an optional list of Mattermost usernames used only for attention alerts; `dm_users` instead routes attention alerts to direct messages, falling back to the channel post on delivery failure. See `mattermost.md` for the remaining Mattermost behavior.

@@ -22,17 +22,18 @@ import (
 // Client manages a connection to a Mattermost server for posting messages
 // and listening for commands via WebSocket.
 type Client struct {
-	cfg         *config.MattermostConfig
-	token       string
-	botUserID   string
-	botUsername string
-	handler     CommandHandler
-	httpClient  *http.Client
-	userCache   map[string]string
-	mu          sync.Mutex
-	ws          *websocket.Conn
-	stopCh      chan struct{}
-	doneCh      chan struct{}
+	cfg            *config.MattermostConfig
+	token          string
+	botUserID      string
+	botUsername    string
+	handler        CommandHandler
+	httpClient     *http.Client
+	userCache      map[string]string
+	dmChannelCache map[string]string
+	mu             sync.Mutex
+	ws             *websocket.Conn
+	stopCh         chan struct{}
+	doneCh         chan struct{}
 }
 
 // NewClient creates a new Mattermost client. the token is resolved from the
@@ -49,12 +50,13 @@ func NewClient(cfg *config.MattermostConfig) *Client {
 		cfg.TriggerWords = []string{"sexton"}
 	}
 	return &Client{
-		cfg:        cfg,
-		token:      token,
-		httpClient: &http.Client{Timeout: 10 * time.Second},
-		userCache:  make(map[string]string),
-		stopCh:     make(chan struct{}),
-		doneCh:     make(chan struct{}),
+		cfg:            cfg,
+		token:          token,
+		httpClient:     &http.Client{Timeout: 10 * time.Second},
+		userCache:      make(map[string]string),
+		dmChannelCache: make(map[string]string),
+		stopCh:         make(chan struct{}),
+		doneCh:         make(chan struct{}),
 	}
 }
 
@@ -378,6 +380,78 @@ func (c *Client) resolveUsername(userID string) (string, error) {
 	c.mu.Unlock()
 
 	return username, nil
+}
+
+// DirectChannelWith resolves the direct-message channel between the bot and the
+// named user, creating it on the server if it does not yet exist. results are
+// cached per username; the bot identity must already be resolved by Start.
+func (c *Client) DirectChannelWith(username string) (string, error) {
+	c.mu.Lock()
+	if channelID, ok := c.dmChannelCache[username]; ok {
+		c.mu.Unlock()
+		return channelID, nil
+	}
+	botUserID := c.botUserID
+	c.mu.Unlock()
+
+	if botUserID == "" {
+		return "", fmt.Errorf("bot identity not resolved; direct channels require a started client")
+	}
+
+	user, err := c.apiGet("/api/v4/users/username/" + url.PathEscape(username))
+	if err != nil {
+		return "", fmt.Errorf("resolve mattermost user '%s': %w", username, err)
+	}
+	userID, _ := user["id"].(string)
+	if userID == "" {
+		return "", fmt.Errorf("mattermost user '%s' has no id", username)
+	}
+
+	channel, err := c.apiPost("/api/v4/channels/direct", []string{botUserID, userID})
+	if err != nil {
+		return "", fmt.Errorf("open direct channel with '%s': %w", username, err)
+	}
+	channelID, _ := channel["id"].(string)
+	if channelID == "" {
+		return "", fmt.Errorf("direct channel with '%s' has no id", username)
+	}
+
+	c.mu.Lock()
+	c.dmChannelCache[username] = channelID
+	c.mu.Unlock()
+
+	return channelID, nil
+}
+
+func (c *Client) apiPost(path string, payload interface{}) (map[string]interface{}, error) {
+	body, err := json.Marshal(payload)
+	if err != nil {
+		return nil, err
+	}
+	apiURL, err := c.buildAPIURL(path)
+	if err != nil {
+		return nil, err
+	}
+	req, err := http.NewRequest("POST", apiURL, bytes.NewReader(body))
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Authorization", "Bearer "+c.token)
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode >= 300 {
+		respBody, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("mattermost api %s failed (status %d): %s", path, resp.StatusCode, string(respBody))
+	}
+	var result map[string]interface{}
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return nil, err
+	}
+	return result, nil
 }
 
 func (c *Client) apiGet(path string) (map[string]interface{}, error) {

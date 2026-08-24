@@ -124,12 +124,17 @@ func TestFormatAlertNonAttentionIgnoresMentionUsers(t *testing.T) {
 	}
 }
 
-func TestNewAlerterCopiesMentionUsers(t *testing.T) {
+func TestNewAlerterCopiesMentionAndDMUsers(t *testing.T) {
 	mentions := []string{"michael"}
-	a := NewAlerter(nil, "alerts", mentions)
+	dms := []string{"michael"}
+	a := NewAlerter(nil, "alerts", mentions, dms)
 	mentions[0] = "changed"
+	dms[0] = "changed"
 	if len(a.mentionUsers) != 1 || a.mentionUsers[0] != "michael" {
 		t.Fatalf("mention users = %#v", a.mentionUsers)
+	}
+	if len(a.dmUsers) != 1 || a.dmUsers[0] != "michael" {
+		t.Fatalf("dm users = %#v", a.dmUsers)
 	}
 }
 

@@ -1,6 +1,6 @@
 ---
 title: auto-commit regions
-state: building
+state: evaluating
 created: 2026-08-20
 tags: [enhancement]
 milestone: v0.1.x
