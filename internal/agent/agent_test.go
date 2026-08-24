@@ -17,40 +17,42 @@ import (
 )
 
 type stubGit struct {
-	branch         string
-	branchErr      error
-	dirty          bool
-	dirtyErr       error
-	unmerged       []string
-	unmergedErr    error
-	status         *git.Status
-	statusErr      error
-	stageErr       error
-	commitErr      error
-	pullErr        error
-	pulled         bool
-	pushErr        error
-	rebaseAbortErr error
-	rebaseAborts   int
-	stageCalls     int
-	commitCalls    int
-	pullCalls      int
-	pushCalls      int
-	shortHEADCalls int
-	shortHEAD      string
-	shortHEADErr   error
-	commitTime     time.Time
-	commitTimeErr  error
-	diffStaged     string
-	diffStagedErr  error
-	diffStat       string
-	diffStatErr    error
-	onIsDirty      func(context.Context)
-	onStageAll     func(context.Context)
-	onCommit       func(context.Context)
-	onPull         func(context.Context)
-	onPush         func(context.Context)
-	onShortHEAD    func(context.Context)
+	branch          string
+	branchErr       error
+	dirty           bool
+	dirtyErr        error
+	dirtyTracked    bool
+	dirtyTrackedErr error
+	unmerged        []string
+	unmergedErr     error
+	status          *git.Status
+	statusErr       error
+	stageErr        error
+	commitErr       error
+	pullErr         error
+	pulled          bool
+	pushErr         error
+	rebaseAbortErr  error
+	rebaseAborts    int
+	stageCalls      int
+	commitCalls     int
+	pullCalls       int
+	pushCalls       int
+	shortHEADCalls  int
+	shortHEAD       string
+	shortHEADErr    error
+	commitTime      time.Time
+	commitTimeErr   error
+	diffStaged      string
+	diffStagedErr   error
+	diffStat        string
+	diffStatErr     error
+	onIsDirty       func(context.Context)
+	onStageAll      func(context.Context)
+	onCommit        func(context.Context)
+	onPull          func(context.Context)
+	onPush          func(context.Context)
+	onShortHEAD     func(context.Context)
 }
 
 func (g *stubGit) Branch(context.Context) (string, error) { return g.branch, g.branchErr }
@@ -60,7 +62,10 @@ func (g *stubGit) IsDirty(ctx context.Context) (bool, error) {
 	}
 	return g.dirty, g.dirtyErr
 }
-func (g *stubGit) Unmerged(context.Context) ([]string, error) { return g.unmerged, g.unmergedErr }
+func (g *stubGit) IsDirtyTracked(context.Context) (bool, error) {
+	return g.dirtyTracked, g.dirtyTrackedErr
+}
+func (g *stubGit) Unmerged(context.Context) ([]string, error)  { return g.unmerged, g.unmergedErr }
 func (g *stubGit) Status(context.Context) (*git.Status, error) { return g.status, g.statusErr }
 func (g *stubGit) StageAll(ctx context.Context) error {
 	g.stageCalls++
@@ -69,12 +74,19 @@ func (g *stubGit) StageAll(ctx context.Context) error {
 	}
 	return g.stageErr
 }
-func (g *stubGit) Commit(ctx context.Context, _ string) error {
+func (g *stubGit) StageRegions(context.Context, []string) error {
+	g.stageCalls++
+	return g.stageErr
+}
+func (g *stubGit) Commit(ctx context.Context, _ string) (string, error) {
 	g.commitCalls++
 	if g.onCommit != nil {
 		g.onCommit(ctx)
 	}
-	return g.commitErr
+	return "created-sha", g.commitErr
+}
+func (g *stubGit) CommitOnly(ctx context.Context, _ string, _ []string) (string, error) {
+	return g.Commit(ctx, "")
 }
 func (g *stubGit) Pull(ctx context.Context, _ string, _ string) (bool, error) {
 	g.pullCalls++
@@ -90,7 +102,8 @@ func (g *stubGit) Push(ctx context.Context, _ string, _ string) error {
 	}
 	return g.pushErr
 }
-func (g *stubGit) RebaseAbort(context.Context) error { g.rebaseAborts++; return g.rebaseAbortErr }
+func (g *stubGit) RebaseAbort(context.Context) error                          { g.rebaseAborts++; return g.rebaseAbortErr }
+func (g *stubGit) RewordCommit(context.Context, string, string, string) error { return nil }
 func (g *stubGit) ShortHEAD(ctx context.Context) (string, error) {
 	g.shortHEADCalls++
 	if g.onShortHEAD != nil {
@@ -103,6 +116,15 @@ func (g *stubGit) CommitTime(context.Context) (time.Time, error) {
 }
 func (g *stubGit) DiffStaged(context.Context) (string, error) { return g.diffStaged, g.diffStagedErr }
 func (g *stubGit) DiffStat(context.Context) (string, error)   { return g.diffStat, g.diffStatErr }
+func (g *stubGit) Show(context.Context, string) (string, error) {
+	return g.diffStaged, g.diffStagedErr
+}
+func (g *stubGit) ShowStat(context.Context, string) (string, error) {
+	return g.diffStat, g.diffStatErr
+}
+func (g *stubGit) ShowNameStatus(context.Context, string) (*git.Status, error) {
+	return g.status, g.statusErr
+}
 
 type recordingAlerter struct {
 	events []AlertEvent

@@ -14,7 +14,7 @@ func TestPullUsesExplicitRemoteAndBranch(t *testing.T) {
 	installFakeGit(t, gitLog, `#!/bin/sh
 printf "%s\n" "$*" >> "$GIT_LOG"
 case "$*" in
-  "status --porcelain")
+  "status --porcelain -uno")
     exit 0
     ;;
   "rev-parse HEAD")
@@ -46,7 +46,7 @@ esac
 	if len(logLines) != 4 {
 		t.Fatalf("expected four git invocations, got %d", len(logLines))
 	}
-	if logLines[0] != "status --porcelain" {
+	if logLines[0] != "status --porcelain -uno" {
 		t.Fatalf("unexpected dirty-check args: %q", logLines[0])
 	}
 	if logLines[1] != "rev-parse HEAD" {
@@ -65,7 +65,7 @@ func TestPullReportsChangesWhenHeadChanges(t *testing.T) {
 	installFakeGit(t, gitLog, `#!/bin/sh
 printf "%s\n" "$*" >> "$GIT_LOG"
 case "$*" in
-  "status --porcelain")
+  "status --porcelain -uno")
     exit 0
     ;;
   "rev-parse HEAD")
@@ -104,7 +104,7 @@ func TestPullTreatsCurrentBranchUpToDateAsNoChangeFallback(t *testing.T) {
 	installFakeGit(t, gitLog, `#!/bin/sh
 printf "%s\n" "$*" >> "$GIT_LOG"
 case "$*" in
-  "status --porcelain")
+  "status --porcelain -uno")
     exit 0
     ;;
   "rev-parse HEAD")
@@ -167,7 +167,7 @@ func TestPullUnknownRemoteReturnsErrNoRemote(t *testing.T) {
 	installFakeGit(t, gitLog, `#!/bin/sh
 printf "%s\n" "$*" >> "$GIT_LOG"
 case "$*" in
-  "status --porcelain")
+  "status --porcelain -uno")
     exit 0
     ;;
   "rev-parse HEAD")

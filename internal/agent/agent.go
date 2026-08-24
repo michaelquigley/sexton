@@ -45,17 +45,24 @@ type Agent struct {
 type gitClient interface {
 	Branch(ctx context.Context) (string, error)
 	IsDirty(ctx context.Context) (bool, error)
+	IsDirtyTracked(ctx context.Context) (bool, error)
 	Unmerged(ctx context.Context) ([]string, error)
 	Status(ctx context.Context) (*git.Status, error)
 	StageAll(ctx context.Context) error
-	Commit(ctx context.Context, message string) error
+	StageRegions(ctx context.Context, regions []string) error
+	Commit(ctx context.Context, message string) (string, error)
+	CommitOnly(ctx context.Context, message string, regions []string) (string, error)
 	Pull(ctx context.Context, remote, branch string) (bool, error)
 	Push(ctx context.Context, remote, branch string) error
 	RebaseAbort(ctx context.Context) error
+	RewordCommit(ctx context.Context, branch, oldSHA, message string) error
 	ShortHEAD(ctx context.Context) (string, error)
 	CommitTime(ctx context.Context) (time.Time, error)
 	DiffStaged(ctx context.Context) (string, error)
 	DiffStat(ctx context.Context) (string, error)
+	Show(ctx context.Context, sha string) (string, error)
+	ShowStat(ctx context.Context, sha string) (string, error)
+	ShowNameStatus(ctx context.Context, sha string) (*git.Status, error)
 }
 
 func NewAgent(cfg *config.ResolvedRepo, g *git.Git) *Agent {
@@ -432,7 +439,7 @@ func (a *Agent) sync() {
 			return
 		}
 
-		if err := a.git.Commit(ctx, msg); err != nil {
+		if _, err := a.git.Commit(ctx, msg); err != nil {
 			if a.syncCanceled(ctx, err) {
 				return
 			}
