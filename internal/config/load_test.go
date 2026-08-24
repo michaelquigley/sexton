@@ -294,3 +294,233 @@ func TestResolveSSHKeyCascadeAndExpansion(t *testing.T) {
 		t.Fatalf("resolved ssh key = %q, want empty", resolved.SSHKey)
 	}
 }
+
+func TestLoadRepoLocalBindsCommitPolicy(t *testing.T) {
+	repoRoot := t.TempDir()
+	content := `
+commit_policy: regions
+commit_regions:
+  - journal/
+`
+	if err := os.WriteFile(filepath.Join(repoRoot, ".sexton.yaml"), []byte(strings.TrimSpace(content)), 0o644); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+
+	cfg, err := LoadRepoLocal(repoRoot)
+	if err != nil {
+		t.Fatalf("LoadRepoLocal() error = %v", err)
+	}
+	if cfg.CommitPolicy != PolicyRegions {
+		t.Fatalf("commit policy = %q, want %q", cfg.CommitPolicy, PolicyRegions)
+	}
+	if len(cfg.CommitRegions) != 1 || cfg.CommitRegions[0] != "journal/" {
+		t.Fatalf("commit regions = %#v, want []string{%q}", cfg.CommitRegions, "journal/")
+	}
+}
+
+func TestLoadBindsCommitPolicyAtGlobalLayers(t *testing.T) {
+	content := `
+defaults:
+  commit_policy: all
+  commit_regions:
+    - defaults/
+repos:
+  - path: /tmp/repo
+    commit_policy: regions
+    commit_regions:
+      - journal/
+`
+	configPath := filepath.Join(t.TempDir(), "config.yaml")
+	if err := os.WriteFile(configPath, []byte(strings.TrimSpace(content)), 0o644); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+
+	cfg, err := Load(configPath)
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if cfg.Defaults.CommitPolicy != PolicyAll || len(cfg.Defaults.CommitRegions) != 1 || cfg.Defaults.CommitRegions[0] != "defaults/" {
+		t.Fatalf("defaults commit policy = %q, regions = %#v", cfg.Defaults.CommitPolicy, cfg.Defaults.CommitRegions)
+	}
+	if len(cfg.Repos) != 1 || cfg.Repos[0].CommitPolicy != PolicyRegions || len(cfg.Repos[0].CommitRegions) != 1 || cfg.Repos[0].CommitRegions[0] != "journal/" {
+		t.Fatalf("repo commit config = %#v, want regions policy for journal/", cfg.Repos)
+	}
+}
+
+func TestResolveCommitPolicyDefaultsToNone(t *testing.T) {
+	resolved, err := Resolve(
+		&RepoEntry{Path: t.TempDir()},
+		&RepoDefaults{},
+		&RepoLocalConfig{},
+	)
+	if err != nil {
+		t.Fatalf("Resolve() error = %v", err)
+	}
+	if resolved.CommitPolicy != PolicyNone {
+		t.Fatalf("commit policy = %q, want %q", resolved.CommitPolicy, PolicyNone)
+	}
+	if !resolved.PolicyDefaulted {
+		t.Fatal("PolicyDefaulted = false, want true")
+	}
+}
+
+func TestResolveExplicitCommitPolicyAtEachLayerClearsDefaultFlag(t *testing.T) {
+	tests := []struct {
+		name     string
+		local    *RepoLocalConfig
+		entry    *RepoEntry
+		defaults *RepoDefaults
+		want     string
+	}{
+		{
+			name:     "repo local",
+			local:    &RepoLocalConfig{CommitPolicy: PolicyNone},
+			entry:    &RepoEntry{CommitPolicy: PolicyAll},
+			defaults: &RepoDefaults{CommitPolicy: PolicyAll},
+			want:     PolicyNone,
+		},
+		{
+			name:     "global repo entry",
+			local:    &RepoLocalConfig{},
+			entry:    &RepoEntry{CommitPolicy: PolicyAll},
+			defaults: &RepoDefaults{CommitPolicy: PolicyNone},
+			want:     PolicyAll,
+		},
+		{
+			name:     "global defaults",
+			local:    &RepoLocalConfig{},
+			entry:    &RepoEntry{},
+			defaults: &RepoDefaults{CommitPolicy: PolicyAll},
+			want:     PolicyAll,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			tt.entry.Path = t.TempDir()
+			resolved, err := Resolve(tt.entry, tt.defaults, tt.local)
+			if err != nil {
+				t.Fatalf("Resolve() error = %v", err)
+			}
+			if resolved.CommitPolicy != tt.want {
+				t.Fatalf("commit policy = %q, want %q", resolved.CommitPolicy, tt.want)
+			}
+			if resolved.PolicyDefaulted {
+				t.Fatal("PolicyDefaulted = true, want false")
+			}
+		})
+	}
+}
+
+func TestResolveCommitRegionsReplaceByLayer(t *testing.T) {
+	tests := []struct {
+		name     string
+		local    []string
+		entry    []string
+		defaults []string
+		want     string
+	}{
+		{
+			name:     "repo local replaces lower layers",
+			local:    []string{"local"},
+			entry:    []string{"entry"},
+			defaults: []string{"defaults"},
+			want:     "local/",
+		},
+		{
+			name:     "global repo entry replaces defaults",
+			entry:    []string{"entry"},
+			defaults: []string{"defaults"},
+			want:     "entry/",
+		},
+		{
+			name:     "global defaults are fallback",
+			defaults: []string{"defaults"},
+			want:     "defaults/",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			resolved, err := Resolve(
+				&RepoEntry{Path: t.TempDir(), CommitRegions: tt.entry},
+				&RepoDefaults{CommitPolicy: PolicyRegions, CommitRegions: tt.defaults},
+				&RepoLocalConfig{CommitRegions: tt.local},
+			)
+			if err != nil {
+				t.Fatalf("Resolve() error = %v", err)
+			}
+			if len(resolved.CommitRegions) != 1 || resolved.CommitRegions[0] != tt.want {
+				t.Fatalf("commit regions = %#v, want []string{%q}", resolved.CommitRegions, tt.want)
+			}
+		})
+	}
+}
+
+func TestResolveNormalizesCommitRegions(t *testing.T) {
+	resolved, err := Resolve(
+		&RepoEntry{Path: t.TempDir()},
+		&RepoDefaults{},
+		&RepoLocalConfig{CommitPolicy: PolicyRegions, CommitRegions: []string{"./journal"}},
+	)
+	if err != nil {
+		t.Fatalf("Resolve() error = %v", err)
+	}
+	if len(resolved.CommitRegions) != 1 || resolved.CommitRegions[0] != "journal/" {
+		t.Fatalf("commit regions = %#v, want []string{%q}", resolved.CommitRegions, "journal/")
+	}
+	if strings.HasPrefix("journal-drafts/entry.md", resolved.CommitRegions[0]) {
+		t.Fatal("normalized journal region matched the journal-drafts near miss")
+	}
+}
+
+func TestResolveRejectsInvalidCommitPolicyConfiguration(t *testing.T) {
+	tests := []struct {
+		name    string
+		policy  string
+		regions []string
+		want    string
+	}{
+		{name: "unknown policy", policy: "sometimes", want: `must be one of "all", "regions", or "none"`},
+		{name: "regions without paths", policy: PolicyRegions, want: "commit_regions is empty"},
+		{name: "empty region", policy: PolicyRegions, regions: []string{""}, want: "must not be empty"},
+		{name: "absolute region", policy: PolicyRegions, regions: []string{"/journal"}, want: "relative"},
+		{name: "whole repo", policy: PolicyRegions, regions: []string{"."}, want: "commit_policy: all"},
+		{name: "parent region", policy: PolicyRegions, regions: []string{"../journal"}, want: "must not escape"},
+		{name: "cleaned escape", policy: PolicyRegions, regions: []string{"journal/../../outside"}, want: "must not escape"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := Resolve(
+				&RepoEntry{Path: t.TempDir()},
+				&RepoDefaults{},
+				&RepoLocalConfig{CommitPolicy: tt.policy, CommitRegions: tt.regions},
+			)
+			if err == nil {
+				t.Fatal("Resolve() error = nil, want non-nil")
+			}
+			if !strings.Contains(err.Error(), tt.want) {
+				t.Fatalf("Resolve() error = %q, want substring %q", err, tt.want)
+			}
+		})
+	}
+}
+
+func TestResolveAllowsInertCommitRegions(t *testing.T) {
+	for _, policy := range []string{PolicyAll, PolicyNone} {
+		t.Run(policy, func(t *testing.T) {
+			resolved, err := Resolve(
+				&RepoEntry{Path: t.TempDir()},
+				&RepoDefaults{},
+				&RepoLocalConfig{CommitPolicy: policy, CommitRegions: []string{"journal"}},
+			)
+			if err != nil {
+				t.Fatalf("Resolve() error = %v", err)
+			}
+			if len(resolved.CommitRegions) != 1 || resolved.CommitRegions[0] != "journal/" {
+				t.Fatalf("commit regions = %#v, want inert normalized region", resolved.CommitRegions)
+			}
+		})
+	}
+}

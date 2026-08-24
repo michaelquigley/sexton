@@ -36,10 +36,12 @@ func NewContainer(cfg *config.GlobalConfig) (*Container, error) {
 	}
 
 	for _, entry := range cfg.Repos {
+		var localConfigErr error
 		local, err := config.LoadRepoLocal(config.ExpandPath(entry.Path))
 		if err != nil {
 			dl.Warnf("failed to load repo-local config for '%s': %v", entry.Path, err)
-			local = &config.RepoLocalConfig{}
+			localConfigErr = err
+			local = &config.RepoLocalConfig{CommitPolicy: config.PolicyNone}
 		}
 
 		resolved, err := config.Resolve(entry, defaults, local)
@@ -47,6 +49,7 @@ func NewContainer(cfg *config.GlobalConfig) (*Container, error) {
 			dl.Warnf("failed to resolve config for '%s': %v", entry.Path, err)
 			continue
 		}
+		resolved.LocalConfigError = localConfigErr
 
 		if resolved.SSHKey != "" {
 			if _, err := os.Stat(resolved.SSHKey); err != nil {

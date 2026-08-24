@@ -96,6 +96,23 @@ func Resolve(entry *RepoEntry, defaults *RepoDefaults, local *RepoLocalConfig) (
 		sshKey = ExpandPath(sshKey)
 	}
 
+	commitPolicy := coalesce(local.CommitPolicy, entry.CommitPolicy, defaults.CommitPolicy)
+	policyDefaulted := commitPolicy == ""
+	if policyDefaulted {
+		commitPolicy = PolicyNone
+	}
+	if err := validateCommitPolicy(commitPolicy); err != nil {
+		return nil, err
+	}
+
+	commitRegions, err := resolveCommitRegions(local.CommitRegions, entry.CommitRegions, defaults.CommitRegions)
+	if err != nil {
+		return nil, err
+	}
+	if commitPolicy == PolicyRegions && len(commitRegions) == 0 {
+		return nil, fmt.Errorf("commit_policy is %q but commit_regions is empty; configure at least one region or use commit_policy: %s", PolicyRegions, PolicyAll)
+	}
+
 	return &ResolvedRepo{
 		Path:                path,
 		Name:                name,
@@ -105,9 +122,64 @@ func Resolve(entry *RepoEntry, defaults *RepoDefaults, local *RepoLocalConfig) (
 		Remote:              coalesce(local.Remote, entry.Remote, defaults.Remote, "origin"),
 		SSHKey:              sshKey,
 		CommitMessagePrompt: coalesce(local.CommitMessagePrompt, entry.CommitMessagePrompt, defaults.CommitMessagePrompt, DefaultCommitMessagePrompt),
+		CommitPolicy:        commitPolicy,
+		CommitRegions:       commitRegions,
+		PolicyDefaulted:     policyDefaulted,
 		HoldoutWindows:      holdoutWindows,
 		Hooks:               hooks,
 	}, nil
+}
+
+func validateCommitPolicy(policy string) error {
+	switch policy {
+	case PolicyAll, PolicyRegions, PolicyNone:
+		return nil
+	default:
+		return fmt.Errorf("invalid commit_policy %q; must be one of %q, %q, or %q", policy, PolicyAll, PolicyRegions, PolicyNone)
+	}
+}
+
+func resolveCommitRegions(local, entry, defaults []string) ([]string, error) {
+	var regions []string
+	switch {
+	case len(local) > 0:
+		regions = local
+	case len(entry) > 0:
+		regions = entry
+	case len(defaults) > 0:
+		regions = defaults
+	default:
+		return nil, nil
+	}
+
+	resolved := make([]string, len(regions))
+	for i, region := range regions {
+		normalized, err := normalizeCommitRegion(region)
+		if err != nil {
+			return nil, fmt.Errorf("invalid commit_regions entry %q: %w", region, err)
+		}
+		resolved[i] = normalized
+	}
+	return resolved, nil
+}
+
+func normalizeCommitRegion(region string) (string, error) {
+	if region == "" {
+		return "", fmt.Errorf("region must not be empty")
+	}
+	if filepath.IsAbs(region) {
+		return "", fmt.Errorf("region must be relative to the repository root")
+	}
+
+	cleaned := filepath.Clean(region)
+	if cleaned == "." {
+		return "", fmt.Errorf("region cannot select the whole repository; use commit_policy: %s", PolicyAll)
+	}
+	if cleaned == ".." || strings.HasPrefix(cleaned, ".."+string(filepath.Separator)) {
+		return "", fmt.Errorf("region must not escape the repository root")
+	}
+
+	return filepath.ToSlash(cleaned) + "/", nil
 }
 
 const defaultHookTimeout = 30 * time.Second

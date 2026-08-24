@@ -35,6 +35,8 @@ type RepoDefaults struct {
 	Remote              string
 	SSHKey              string
 	CommitMessagePrompt string
+	CommitPolicy        string
+	CommitRegions       []string
 	HoldoutWindows      []*HoldoutWindowEntry
 	Hooks               *HooksConfig
 }
@@ -47,6 +49,8 @@ type RepoEntry struct {
 	Remote              string
 	SSHKey              string
 	CommitMessagePrompt string
+	CommitPolicy        string
+	CommitRegions       []string
 	HoldoutWindows      []*HoldoutWindowEntry
 	Hooks               *HooksConfig
 }
@@ -80,6 +84,8 @@ type RepoLocalConfig struct {
 	Remote              string
 	SSHKey              string
 	CommitMessagePrompt string
+	CommitPolicy        string
+	CommitRegions       []string
 	HoldoutWindows      []*HoldoutWindowEntry
 	Hooks               *HooksConfig
 }
@@ -113,9 +119,19 @@ type ResolvedRepo struct {
 	Remote              string
 	SSHKey              string
 	CommitMessagePrompt string
+	CommitPolicy        string
+	CommitRegions       []string
+	PolicyDefaulted     bool
+	LocalConfigError    error
 	HoldoutWindows      []*ResolvedHoldoutWindow
 	Hooks               *ResolvedHooks
 }
+
+const (
+	PolicyAll     = "all"
+	PolicyRegions = "regions"
+	PolicyNone    = "none"
+)
 
 const DefaultCommitMessagePrompt = "Summarize the following git diff as a concise commit message. Use imperative mood. Be specific about what changed."
 
