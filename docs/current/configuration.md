@@ -9,7 +9,7 @@ Three layers, resolved once at startup into a `config.ResolvedRepo` per repo. No
 
 - **global** — `~/.config/sexton/config.yaml`, or `$XDG_CONFIG_HOME/sexton/config.yaml` when that variable is set. `--config` overrides the path.
 - **repo-local** — `.sexton.yaml` in the repo root, read for every configured repo.
-- **built-in defaults** — `30s` poll, branch `main`, remote `origin`, and the default commit-message prompt.
+- **built-in defaults** — `30s` poll, branch `main`, remote `origin`, commit policy `none`, and the default commit-message prompt.
 
 A missing config file at any layer is not an error: `Load` returns defaults, and a repo without `.sexton.yaml` resolves from the global entry alone. The socket path (`~/.config/sexton/sexton.sock`) is derived from the same directory, so `XDG_CONFIG_HOME` moves the control socket with the config.
 
@@ -21,7 +21,7 @@ The binder ignores unknown keys. A misspelled field name is not an error — it 
 
 ## the cascade
 
-Scalars resolve by first-non-empty over repo-local, then the global repo entry, then defaults, then a hardcoded fallback. Lists — hooks and holdout windows — **replace rather than merge**: the first layer with a non-empty list for that phase wins entirely, so a repo-local `pre_commit` list overrides the global one instead of appending to it.
+Scalars resolve by first-non-empty over repo-local, then the global repo entry, then defaults, then a hardcoded fallback. Lists — hooks, holdout windows, and commit regions — **replace rather than merge**: the first layer with a non-empty list for that phase or setting wins entirely, so a repo-local `pre_commit` list overrides the global one instead of appending to it.
 
 Paths expand `~` and environment variables, applied to repo paths and to `ssh_key`.
 
@@ -30,6 +30,14 @@ Paths expand `~` and environment variables, applied to repo paths and to `ssh_ke
 A repo's name is its explicit `name` (repo-local first, then the global entry) or, absent one, the basename of its path. Whether the name was explicit is recorded on the resolved repo and matters twice: only explicitly-named repos participate in duplicate-name detection, and only explicit names are stable identifiers for lookup — a basename resolves a repo only when it is unambiguous.
 
 Container construction is strict about identity and lenient about everything else. Duplicate repo paths, or duplicate explicit names, are fatal. A repo whose config won't resolve, or whose path isn't a git repository, is logged and skipped. A configured `ssh_key` that doesn't exist on disk is a warning, not a failure — the key may be provisioned later, and git will produce the real error. If nothing survives, startup fails with `no valid repos to watch`.
+
+## commit policy
+
+`commit_policy` is `all`, `regions`, or `none`. `all` selects every changed path, `regions` selects changes beneath the normalized repo-relative directory prefixes in `commit_regions`, and `none` never creates a commit. Policies affect commit creation, not pushing: clean repos and operator-created commits still pull and push under `none`, while `regions` continues pushing selected commits.
+
+A region is cleaned, made repo-relative, and normalized with a trailing slash so `journal/` does not select `journal-drafts/`. Empty, absolute, escaping, or whole-repository regions are rejected. `regions` with no resolved regions is also rejected because it would silently select nothing. A region list under `all` or `none` is valid but inert, which lets a higher-precedence policy override a lower layer without also having to erase its list.
+
+Missing policy defaults to `none`, deliberately breaking the pre-policy behavior that committed the whole tree. The agent warns once at startup with `no commit_policy configured; defaulting to 'none'`. If `.sexton.yaml` exists but cannot be parsed, its repo-local layer is replaced with an explicit `none` rather than falling through to broader global policy; the repo remains monitored and warns once that repo-local config is malformed and the policy was forced. Fixing either condition requires a restart because configuration is startup-only.
 
 ## holdout windows
 
@@ -45,4 +53,4 @@ The API key is resolved once at startup: a non-empty value from the environment 
 
 ## alerts
 
-The top-level `alerts` list selects the alert sinks: `log` (or an empty type) and `mattermost`. An empty list means log-only. A `mattermost` entry with no `mattermost:` block, or with an empty `channel_id`, fails startup rather than degrading. See `mattermost.md` for what a Mattermost entry configures.
+The top-level `alerts` list selects the alert sinks: `log` (or an empty type) and `mattermost`. An empty list means log-only. A `mattermost` entry with no `mattermost:` block, or with an empty `channel_id`, fails startup rather than degrading. `mention_users` is an optional list of Mattermost usernames used only for attention alerts. See `mattermost.md` for the remaining Mattermost behavior.

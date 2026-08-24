@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	"github.com/michaelquigley/push/build"
 	"github.com/michaelquigley/sexton/internal/agent"
@@ -16,7 +17,7 @@ func TestFormatAlertInfo(t *testing.T) {
 		RepoName: "my-notes",
 		Message:  "sync complete (abc123)",
 	}
-	got := FormatAlert(event)
+	got := FormatAlert(event, nil)
 	if !strings.Contains(got, "**info**") {
 		t.Errorf("expected info severity, got %q", got)
 	}
@@ -39,7 +40,7 @@ func TestFormatAlertWithFiles(t *testing.T) {
 			Deleted:  []string{"notes/old.md"},
 		},
 	}
-	got := FormatAlert(event)
+	got := FormatAlert(event, nil)
 	if !strings.Contains(got, "`notes/todo.md`") {
 		t.Errorf("expected modified file, got %q", got)
 	}
@@ -63,7 +64,7 @@ func TestFormatAlertWithFilesPartial(t *testing.T) {
 			Modified: []string{"notes/todo.md"},
 		},
 	}
-	got := FormatAlert(event)
+	got := FormatAlert(event, nil)
 	if !strings.Contains(got, "- modified:") {
 		t.Errorf("expected modified label, got %q", got)
 	}
@@ -82,12 +83,83 @@ func TestFormatAlertError(t *testing.T) {
 		Message:  "pull failed",
 		Error:    errors.New("conflict detected"),
 	}
-	got := FormatAlert(event)
+	got := FormatAlert(event, nil)
 	if !strings.Contains(got, "**error**") {
 		t.Errorf("expected error severity, got %q", got)
 	}
 	if !strings.Contains(got, "conflict detected") {
 		t.Errorf("expected error detail, got %q", got)
+	}
+}
+
+func TestFormatAlertAttentionMentionsOnlyConfiguredUsers(t *testing.T) {
+	event := agent.AlertEvent{
+		Severity: "attention",
+		RepoName: "repo] **loud** @channel",
+		Message:  `"drafts/@all|` + "`note`" + `.md" (pulls paused)`,
+	}
+	got := FormatAlert(event, []string{"michael", "@alice"})
+
+	if !strings.HasPrefix(got, "@michael @alice **attention**") {
+		t.Fatalf("attention alert = %q", got)
+	}
+	for _, accidental := range []string{"@channel", "@all", "**loud**"} {
+		if strings.Contains(got, accidental) {
+			t.Fatalf("attention alert contains active untrusted markdown or mention %q: %q", accidental, got)
+		}
+	}
+	if strings.Count(got, "@michael") != 1 || strings.Count(got, "@alice") != 1 {
+		t.Fatalf("configured mentions were not the only live mentions: %q", got)
+	}
+}
+
+func TestFormatAlertNonAttentionIgnoresMentionUsers(t *testing.T) {
+	got := FormatAlert(agent.AlertEvent{
+		Severity: "error",
+		RepoName: "notes",
+		Message:  "pull failed",
+	}, []string{"michael"})
+	if strings.Contains(got, "@michael") {
+		t.Fatalf("error alert included attention mention: %q", got)
+	}
+}
+
+func TestNewAlerterCopiesMentionUsers(t *testing.T) {
+	mentions := []string{"michael"}
+	a := NewAlerter(nil, "alerts", mentions)
+	mentions[0] = "changed"
+	if len(a.mentionUsers) != 1 || a.mentionUsers[0] != "michael" {
+		t.Fatalf("mention users = %#v", a.mentionUsers)
+	}
+}
+
+func TestFormatAlertNeutralizesHostileFileNames(t *testing.T) {
+	invalid := string([]byte{'b', 'a', 'd', 0xff, '.', 'm', 'd'})
+	got := FormatAlert(agent.AlertEvent{
+		Severity: "info",
+		RepoName: "notes",
+		Message:  "sync complete",
+		Files: &agent.AlertFiles{Modified: []string{
+			"notes/`tick`.md",
+			"notes/@channel.md",
+			"notes/line\nbreak.md",
+			invalid,
+		}}}, nil)
+
+	if !utf8.ValidString(got) {
+		t.Fatalf("alert is not valid UTF-8: %q", got)
+	}
+	if strings.Contains(got, "@channel") || strings.Contains(got, "line\nbreak") {
+		t.Fatalf("alert retained an active mention or raw newline: %q", got)
+	}
+	if !strings.Contains(got, `\xff`) {
+		t.Fatalf("alert did not preserve invalid byte visibly: %q", got)
+	}
+}
+
+func TestMattermostCodeSpanContainsBackticksSafely(t *testing.T) {
+	if got := mattermostCodeSpan("notes/`tick`.md"); got != "``notes/`tick`.md``" {
+		t.Fatalf("code span = %q", got)
 	}
 }
 
@@ -137,6 +209,45 @@ func TestFormatStatusTable(t *testing.T) {
 	}
 }
 
+func TestFormatStatusUsesDetailPrecedenceAndNeutralizesMarkdown(t *testing.T) {
+	hostileDetail := `"drafts/line\nbreak|` + "`note`" + `@all\xff.md"`
+	statuses := []RepoStatus{
+		{
+			Name:            "attention|repo @channel",
+			State:           "attention",
+			Branch:          "main|next",
+			AttentionDetail: hostileDetail,
+		},
+		{
+			Name:            "paused",
+			State:           "snoozed",
+			Branch:          "main",
+			Error:           "push failed",
+			AttentionDetail: "standing attention",
+			SnoozeRemaining: time.Minute,
+		},
+	}
+
+	got := FormatStatus(statuses)
+	if !strings.Contains(got, "| detail |") || strings.Contains(got, "| error |") {
+		t.Fatalf("status header = %q", got)
+	}
+	for _, unsafe := range []string{"@channel", "@all", "main|next"} {
+		if strings.Contains(got, unsafe) {
+			t.Fatalf("status retained unsafe value %q: %q", unsafe, got)
+		}
+	}
+	if !strings.Contains(got, "push failed") || strings.Contains(got, "standing attention") {
+		t.Fatalf("error did not outrank retained attention: %q", got)
+	}
+	if strings.Contains(got, "line\nbreak") || !strings.Contains(got, `\xff`) {
+		t.Fatalf("hostile detail was not rendered visibly: %q", got)
+	}
+	if !strings.Contains(got, "snoozed (1m0s left)") {
+		t.Fatalf("paused state missing: %q", got)
+	}
+}
+
 func TestFormatAlertWithCommitMessage(t *testing.T) {
 	event := agent.AlertEvent{
 		Severity:      "info",
@@ -144,7 +255,7 @@ func TestFormatAlertWithCommitMessage(t *testing.T) {
 		Message:       "sync complete (abc123)",
 		CommitMessage: "add pane design spec and update project index",
 	}
-	got := FormatAlert(event)
+	got := FormatAlert(event, nil)
 	if !strings.Contains(got, "> add pane design spec and update project index") {
 		t.Errorf("expected commit message in blockquote, got %q", got)
 	}

@@ -38,7 +38,7 @@ func (a *LogAlerter) Alert(_ context.Context, event AlertEvent) error {
 		} else {
 			dl.Errorf("[%s] %s", event.RepoName, event.Message)
 		}
-	case "warning":
+	case "warning", "attention":
 		dl.Warnf("[%s] %s", event.RepoName, event.Message)
 	default:
 		if event.Files != nil {

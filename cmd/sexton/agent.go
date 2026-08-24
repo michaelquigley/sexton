@@ -144,6 +144,7 @@ func agentToRepoInfo(ag *agent.Agent) rpc.RepoInfo {
 		LastSync:         ag.LastSync(),
 		LastCommit:       ag.LastCommit(),
 		LastChange:       ag.LastChange(),
+		AttentionDetail:  ag.AttentionDetail(),
 		SnoozeRemaining:  ag.SnoozeRemaining(),
 		HoldoutRemaining: ag.HoldoutRemaining(),
 	}
@@ -197,7 +198,7 @@ func buildAlerter(alerts []*config.AlertConfig, adapter *containerAdapter) (agen
 				mmIngressByIdentity[identity] = ingress
 				mmClients = append(mmClients, mc)
 			}
-			alerters = append(alerters, mattermost.NewAlerter(mc, ac.Mattermost.ChannelID))
+			alerters = append(alerters, mattermost.NewAlerter(mc, ac.Mattermost.ChannelID, ac.Mattermost.MentionUsers))
 		default:
 			stopMattermostClients(mmClients)
 			return nil, nil, fmt.Errorf("unknown alert type '%s'", ac.Type)
@@ -287,6 +288,7 @@ func (a *mattermostAdapter) Status(repo string) ([]mattermost.RepoStatus, error)
 			LastCommit:       info.LastCommit,
 			LastChange:       info.LastChange,
 			Error:            info.Error,
+			AttentionDetail:  info.AttentionDetail,
 			SnoozeRemaining:  info.SnoozeRemaining,
 			HoldoutRemaining: info.HoldoutRemaining,
 		})

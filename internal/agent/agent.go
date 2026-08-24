@@ -87,6 +87,12 @@ func (a *Agent) Wire(c *Container) error {
 }
 
 func (a *Agent) Start() error {
+	switch {
+	case a.cfg.LocalConfigError != nil:
+		a.alert("warning", fmt.Sprintf("repo-local config malformed (%v); commit policy forced to 'none'", a.cfg.LocalConfigError), nil)
+	case a.cfg.PolicyDefaulted:
+		a.alert("warning", "no commit_policy configured; defaulting to 'none'", nil)
+	}
 	if len(a.cfg.HoldoutWindows) > 0 {
 		go a.runHoldoutScheduler()
 	}
@@ -913,32 +919,46 @@ func formatErrorDetail(message string, err error) string {
 }
 
 func (a *Agent) alert(severity, message string, err error) {
-	_ = a.alerter.Alert(context.Background(), AlertEvent{
+	event := AlertEvent{
 		Severity:  severity,
 		RepoName:  a.cfg.Name,
 		Message:   message,
 		Error:     err,
 		Timestamp: a.now(),
-	})
+	}
+	if a.alerter == nil {
+		dl.Warnf("failed to deliver alert for '%s': '%s': no alerter configured", a.cfg.Name, message)
+		return
+	}
+	if alertErr := a.alerter.Alert(context.Background(), event); alertErr != nil {
+		dl.Warnf("failed to deliver alert for '%s': '%s': %v", a.cfg.Name, message, alertErr)
+	}
 }
 
 func (a *Agent) alertWithFiles(severity, message string, status *git.Status, commitMessage string) {
 	var files *AlertFiles
 	if status != nil {
 		files = &AlertFiles{
-			Modified: status.Modified,
-			Added:    append(status.Added, status.Untracked...),
-			Deleted:  status.Deleted,
+			Modified: append([]string(nil), status.Modified...),
+			Added:    append(append([]string(nil), status.Added...), status.Untracked...),
+			Deleted:  append([]string(nil), status.Deleted...),
 		}
 	}
-	_ = a.alerter.Alert(context.Background(), AlertEvent{
+	event := AlertEvent{
 		Severity:      severity,
 		RepoName:      a.cfg.Name,
 		Message:       message,
 		Timestamp:     a.now(),
 		Files:         files,
 		CommitMessage: commitMessage,
-	})
+	}
+	if a.alerter == nil {
+		dl.Warnf("failed to deliver alert for '%s': '%s': no alerter configured", a.cfg.Name, message)
+		return
+	}
+	if alertErr := a.alerter.Alert(context.Background(), event); alertErr != nil {
+		dl.Warnf("failed to deliver alert for '%s': '%s': %v", a.cfg.Name, message, alertErr)
+	}
 }
 
 // abortRebase runs 'git rebase --abort' on its own bounded context, deliberately

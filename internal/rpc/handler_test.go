@@ -9,6 +9,7 @@ import (
 	sextonv1 "github.com/michaelquigley/sexton/api/v1"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+	"google.golang.org/protobuf/proto"
 )
 
 type stubController struct {
@@ -164,6 +165,29 @@ func TestHandlerStatusIncludesHoldoutRemaining(t *testing.T) {
 	}
 	if got := resp.GetRepos()[0].GetHoldoutRemaining(); got != "45m1s" {
 		t.Fatalf("Status() holdout remaining = %q, want %q", got, "45m1s")
+	}
+}
+
+func TestHandlerStatusIncludesAttentionDetailAndMarshalsHostilePath(t *testing.T) {
+	detail := `"drafts/line\nbreak|` + "`tick`" + `@channel\xff.md" (pulls paused)`
+	h := &handler{ctrl: stubController{
+		statusInfos: []RepoInfo{{
+			Name:            "notes",
+			State:           "attention",
+			Branch:          "main",
+			AttentionDetail: detail,
+		}},
+	}}
+
+	resp, err := h.Status(context.Background(), &sextonv1.StatusRequest{})
+	if err != nil {
+		t.Fatalf("Status() error = %v", err)
+	}
+	if got := resp.GetRepos()[0].GetAttentionDetail(); got != detail {
+		t.Fatalf("attention detail = %q, want %q", got, detail)
+	}
+	if _, err := proto.Marshal(resp); err != nil {
+		t.Fatalf("proto.Marshal() error = %v", err)
 	}
 }
 

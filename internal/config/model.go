@@ -73,6 +73,7 @@ type MattermostConfig struct {
 	Token        string
 	TokenEnv     string
 	ChannelID    string `dd:",+required"`
+	MentionUsers []string
 	TriggerWords []string
 	AllowedUsers []string
 }

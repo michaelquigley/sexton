@@ -3,6 +3,7 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 )
@@ -344,6 +345,37 @@ repos:
 	}
 	if len(cfg.Repos) != 1 || cfg.Repos[0].CommitPolicy != PolicyRegions || len(cfg.Repos[0].CommitRegions) != 1 || cfg.Repos[0].CommitRegions[0] != "journal/" {
 		t.Fatalf("repo commit config = %#v, want regions policy for journal/", cfg.Repos)
+	}
+}
+
+func TestLoadBindsMattermostMentionUsers(t *testing.T) {
+	content := `
+alerts:
+  - type: mattermost
+    mattermost:
+      url: https://mattermost.example.com
+      token: secret
+      channel_id: alerts
+      mention_users:
+        - michael
+        - alice
+repos:
+  - path: /tmp/repo
+`
+	configPath := filepath.Join(t.TempDir(), "config.yaml")
+	if err := os.WriteFile(configPath, []byte(strings.TrimSpace(content)), 0o644); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+
+	cfg, err := Load(configPath)
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if len(cfg.Alerts) != 1 || cfg.Alerts[0].Mattermost == nil {
+		t.Fatalf("alerts = %#v", cfg.Alerts)
+	}
+	if got := cfg.Alerts[0].Mattermost.MentionUsers; !reflect.DeepEqual(got, []string{"michael", "alice"}) {
+		t.Fatalf("mention users = %#v", got)
 	}
 }
 

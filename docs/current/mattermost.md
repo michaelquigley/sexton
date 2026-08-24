@@ -15,7 +15,7 @@ The token resolves from `token_env` first, then a literal `token`. `Start` authe
 
 **Startup failure is fatal to the agent.** A missing token, a failed authentication, or an unreachable server stops sexton rather than degrading to log-only alerting — the same posture as the RPC server. Log-only is a configuration (drop the entry), never an accident.
 
-Once running, delivery is best-effort in the other direction: a failed `PostMessage` is logged and not retried, matching what the log alerter guarantees. A dropped websocket reconnects with a backoff of 1, 2, 4, 8, 15, then 30 seconds, holding at 30; every wait and every iteration checks the stop channel, so shutdown during a backoff is immediate rather than waiting out the delay.
+Once running, delivery is best-effort in the other direction: a failed `PostMessage` is not retried, but the agent logs a warning naming the repo and undelivered message. This matters for Mattermost-only configurations, where a failed post would otherwise leave no evidence. A dropped websocket reconnects with a backoff of 1, 2, 4, 8, 15, then 30 seconds, holding at 30; every wait and every iteration checks the stop channel, so shutdown during a backoff is immediate rather than waiting out the delay.
 
 ## addressing
 
@@ -28,19 +28,21 @@ Two ways to address an agent coexist, which is what makes a shared channel work 
 
 Alerts are posted only to the configured `channel_id`. Command responses go back to the channel the command arrived in, so DMs work without extra configuration.
 
+`mention_users` is an outbound list of usernames. Attention alerts prepend those configured `@mentions` and an `attention` marker; warnings, errors, and informational alerts ignore the list. Repo names, details, commit messages, and filenames are rendered so their markdown and `@tokens` are inert — configured usernames are the only live mentions an attention alert can carry.
+
 ## commands
 
 `status [repo]`, `sync <repo>`, `snooze <repo> <duration>`, `resume <repo>`, `help`. A bare trigger word returns help; an unrecognized subcommand returns the unknown-command line followed by help; missing arguments return a command-specific message rather than generic help. Repo resolution and its ambiguity errors are the same as the socket path's.
 
 `Dispatch` takes command text with the trigger word or mentions already removed, which keeps the whole grammar testable without a websocket.
 
-Status renders as a markdown table — repo, state, branch, last sync, last change, error — with relative times, and with the state cell replaced by `holdout (12m left)` or `snoozed (30m left)` when a pause is active. The build string is appended, so asking a fleet for status in a shared channel shows which build each agent is running.
+Status renders as a markdown table — repo, state, branch, last sync, last change, detail — with relative times, and with the state cell replaced by `holdout (12m left)` or `snoozed (30m left)` when a pause is active. Detail carries a retained error first, otherwise retained attention; it remains visible when a pause masks the underlying state. Untrusted table values are markdown- and mention-neutral. The build string is appended, so asking a fleet for status in a shared channel shows which build each agent is running.
 
 ## fan-out and de-duplication
 
 `agent.MultiAlerter` composes the sinks; a single configured sink is used directly rather than wrapped. Alert events carry severity, repo name, message, optional error, and — for a completed sync — the commit message and the per-category file lists, which the formatter renders as a quoted message with backticked file names.
 
-Mattermost clients are **de-duplicated by identity**, where identity is the server URL plus the auth source (`env:VAR` or the literal token). Two alert entries pointing at the same bot share one client and therefore one websocket, so a command posted once is processed once instead of once per entry. The corollary is enforced at startup: two entries with the same identity but different `allowed_users` or `trigger_words` are a configuration error, because a shared client can only honor one ingress policy. Entries differing only by `channel_id` are fine — that is one bot alerting into two channels.
+Mattermost clients are **de-duplicated by identity**, where identity is the server URL plus the auth source (`env:VAR` or the literal token). Two alert entries pointing at the same bot share one client and therefore one websocket, so a command posted once is processed once instead of once per entry. The corollary is enforced at startup: two entries with the same identity but different `allowed_users` or `trigger_words` are a configuration error, because a shared client can only honor one ingress policy. `channel_id` and `mention_users` are egress policy and may differ freely between entries sharing a client — that is one bot alerting into two channels with channel-specific recipients.
 
 ## drift from the original spec
 

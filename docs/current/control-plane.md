@@ -19,6 +19,8 @@ Startup checks for a stale socket before binding. If the path exists, the server
 
 Errors carry gRPC status codes chosen by meaning rather than by convenience: `NotFound` for an unknown repo, `InvalidArgument` for an ambiguous repo or an unparseable duration, and `FailedPrecondition` for everything else — which is what a refusal looks like when the agent is snoozed or inside a holdout window. Timestamps cross the wire as RFC 3339 strings and remaining durations as rounded-to-second Go duration strings; absent values are empty strings rather than zero values.
 
+Repo status carries retained error and attention details separately. The CLI renders them in one `detail` column with error first, then attention, including while `snoozed` or `holdout` masks the underlying state. This keeps a paused repo from appearing clean without confusing an attention condition with an error.
+
 ## dependency inversion
 
 `internal/rpc` declares what it needs — an `AgentController` interface and a `RepoInfo` value type — and `internal/agent` knows nothing about it. The adapter satisfying the interface (`containerAdapter`) lives in `cmd/sexton`, which is the only package that imports both. This is what keeps `internal/agent` free of any transport import and avoids the circular dependency that would otherwise form; the Mattermost side reuses the same shape, with `mattermostAdapter` wrapping `containerAdapter` and translating `rpc.RepoInfo` into the Mattermost package's own status type so that package never imports `rpc` either.

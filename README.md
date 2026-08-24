@@ -1,6 +1,6 @@
 # Sexton
 
-Git-based repository synchronization agent. Keeps local git repos in sync with their remotes by polling for changes, committing with LLM-generated summaries, and pushing while surfacing per-repo errors it cannot immediately resolve.
+Git-based repository synchronization agent. Keeps local git repos in sync with their remotes by polling for changes, committing selected changes with LLM-generated summaries, and pushing while surfacing per-repo errors and changes that need an operator's attention.
 
 Designed for knowledge repositories and datasets (markdown collections, config stores, structured data), not code repos.
 
@@ -12,12 +12,13 @@ Sexton runs a per-repo sync loop on a fixed poll interval:
 
 ```mermaid
 flowchart TD
-    poll[Poll] --> dirty{Dirty?}
-    dirty -- no --> pull
-    dirty -- yes --> pre_commit[pre_commit hooks]
-    pre_commit --> commit[Stage & Commit]
-    commit --> post_commit[post_commit hooks]
-    post_commit --> pull[Pull --rebase]
+    poll[Poll] --> partition[Read status and apply commit policy]
+    partition --> selected{Selected changes?}
+    selected -- yes --> commit[pre_commit / scoped stage / commit / summarize / reword / post_commit]
+    selected -- no --> attention
+    commit --> attention{Tracked unselected changes?}
+    attention -- yes --> push
+    attention -- no --> pull[Pull --rebase]
     pull --> pulled{Pulled changes?}
     pulled -- yes --> post_pull[post_pull hooks]
     pulled -- no --> pre_push[pre_push hooks]
@@ -29,8 +30,9 @@ flowchart TD
     pull -- conflict --> error([Error])
 ```
 
-- **Clean tree**: pull, run post_pull hooks only if the pull changed the repo, run pre_push/post_sync hooks, push, sleep
-- **Dirty tree**: run pre_commit hooks, stage all, generate a commit message via LLM, commit, run post_commit hooks, pull --rebase, run post_pull hooks only if the pull changed the repo, run pre_push hooks, push, run post_sync hooks
+- **Selected changes**: commit only what `commit_policy` permits, describe that exact commit with the LLM or the mechanical fallback, then atomically replace its placeholder message
+- **Unselected changes**: enter `attention` and name the paths; tracked changes pause pulls while untracked-only changes do not
+- **Every completed cycle**: run post_pull hooks only when the pull changed the repo, then pre_push, push, and post_sync; pushes continue while a repo is in `attention`
 - **Conflict**: abort the rebase, mark the repo errored, alert the user
 - **Hook failure**: mark the repo errored, alert the user
 
@@ -66,15 +68,24 @@ defaults:
   branch: main
   remote: origin
   ssh_key: ~/.ssh/sexton_deploy
+  commit_policy: none
   holdout_windows:
     - start: "02:00"
       end: "02:30"
 
 alerts:
   - type: log
+  - type: mattermost
+    mattermost:
+      url: "https://mattermost.example.com"
+      token_env: "SEXTON_MATTERMOST_TOKEN"
+      channel_id: "alerts-channel-id"
+      mention_users: [michael]
 
 repos:
   - path: ~/grimoire
+    commit_policy: regions
+    commit_regions: [journal/]
     hooks:
       post_pull:
         - command: "lore sync"
@@ -82,6 +93,7 @@ repos:
   - path: ~/datasets/research
     name: research
     poll_interval: 60s
+    commit_policy: all
     holdout_windows:
       - start: "23:30"
         end: "00:15"
@@ -94,6 +106,9 @@ Place a `.sexton.yaml` in the repo root to override global settings:
 ```yaml
 poll_interval: 15s
 branch: main
+commit_policy: regions
+commit_regions:
+  - journal/
 commit_message_prompt: |
   Summarize this diff as a commit message for a personal knowledge base.
   Be brief. Use present tense.
@@ -122,7 +137,10 @@ hooks:
 | `remote` | global, repo | `origin` | Git remote Sexton explicitly pulls from and pushes to |
 | `ssh_key` | global, repo | -- | Path to a passphrase-less private key git uses for this repo's SSH remote, injected via `GIT_SSH_COMMAND` with `IdentitiesOnly=yes`. Lets the agent sync without a running `ssh-agent`; `~` and `$ENV` are expanded |
 | `commit_message_prompt` | global, repo | (built-in) | System prompt for LLM commit summarization |
+| `commit_policy` | global, repo | `none` | `all` commits every change, `regions` commits only configured prefixes, and `none` never creates commits |
+| `commit_regions` | global, repo | -- | Repo-relative directory prefixes selected by `commit_policy: regions`; the first non-empty cascade layer replaces the whole list |
 | `holdout_windows` | global, repo | -- | Daily local-time windows where sync is paused; each entry is `{start,end}` in `HH:MM` 24-hour format |
+| `alerts[].mattermost.mention_users` | global | -- | Mattermost usernames to mention on `attention` alerts; other alert severities do not mention them |
 | `hooks.pre_commit` | global, repo | -- | Commands to run before staging and committing |
 | `hooks.post_commit` | global, repo | -- | Commands to run after a successful commit |
 | `hooks.post_pull` | global, repo | -- | Commands to run after a pull changes the local checkout |
@@ -141,14 +159,20 @@ For hooks, the cascade is per-phase replacement -- if `.sexton.yaml` defines `po
 
 For `holdout_windows`, the cascade is whole-list replacement at each level.
 
+For `commit_regions`, the first non-empty repo-local, repo-entry, or defaults list replaces the lower layer's list. Regions are normalized to repo-relative directory prefixes. `commit_policy: regions` without at least one region is invalid; regions configured under `all` or `none` are inert.
+
+### Commit-policy migration
+
+`commit_policy` defaults to `none`. This is a breaking change from earlier builds, which committed every dirty file. To preserve the old behavior across a fleet, add `commit_policy: all` to the global defaults or to every repo's `.sexton.yaml` before upgrading. A missing policy warns once at startup; a malformed `.sexton.yaml` forces that repo to `none` and warns instead of inheriting a broader global policy.
+
 ### Lifecycle hooks
 
 Hooks run shell commands at phase boundaries in the sync loop. Each hook runs with the repo root as working directory (override with `dir`; relative values stay repo-root-relative) and receives `SEXTON_REPO_PATH`, `SEXTON_REPO_NAME`, and `SEXTON_HOOK` environment variables plus any custom variables from `env`. Multiple hooks per phase run sequentially in declaration order. A hook that exits non-zero halts the agent.
 
 | Hook | When it fires |
 |---|---|
-| `pre_commit` | After dirty check, before staging (dirty cycles only) |
-| `post_commit` | After successful commit (dirty cycles only) |
+| `pre_commit` | After policy selection, before staging (cycles with selected changes only) |
+| `post_commit` | After successful commit creation and reword (cycles with selected changes only) |
 | `post_pull` | After a pull changes the local checkout |
 | `pre_push` | Before push |
 | `post_sync` | After entire sync cycle succeeds (every cycle) |
@@ -174,7 +198,7 @@ If multiple repos share the same basename, target them by configured `name` or f
 
 The `BRANCH` column shows the repo's actual current checkout. If it differs from the configured `branch`, the repo enters `error` with a mismatch message.
 
-The `PAUSE` column shows the remaining holdout or snooze duration when a repo is paused.
+The `DETAIL` column shows a retained error first, otherwise the paths needing attention. The `PAUSE` column shows the remaining holdout or snooze duration. A paused repo retains its underlying detail, so a snooze or holdout never makes a standing condition look clean.
 
 ### Trigger immediate sync
 
@@ -240,6 +264,10 @@ stateDiagram-v2
     error --> syncing : next poll / sync / resume
     syncing --> watching : recovery succeeds
 
+    syncing --> attention : unselected changes remain
+    attention --> syncing : next poll / sync
+    attention --> watching : changes resolved
+
     watching --> snoozed : user snooze
     snoozed --> watching : timeout expires / resume
     watching --> holdout : holdout window starts
@@ -251,12 +279,13 @@ stateDiagram-v2
 - **watching** -- polling on the configured interval
 - **syncing** -- executing stage, commit, pull, push
 - **error** -- last sync attempt failed; visible in status and retried automatically
+- **attention** -- local changes need an operator decision; allowed sync work and pushes continue
 - **snoozed** -- temporarily paused; auto-expires after the specified duration
 - **holdout** -- paused by a configured daily maintenance window
 
 ## Commit messages
 
-Sexton sends the staged diff (or `--stat` for large diffs) to the configured LLM and uses the response as the commit message. If the LLM is unavailable — or no `llm` block is configured at all — it falls back to a mechanical summary:
+Sexton first creates a commit with a minimal placeholder, then sends that exact commit's diff (or `--stat` for large diffs) to the configured LLM and atomically rewords the commit. If the LLM is unavailable — or no `llm` block is configured at all — it derives a mechanical summary from that same commit object:
 
 ```
 sexton: add 1 file, update 3 files

@@ -39,6 +39,9 @@ func (h *handler) Status(_ context.Context, req *sextonv1.StatusRequest) (*sexto
 		if info.Error != "" {
 			rs.Error = info.Error
 		}
+		if info.AttentionDetail != "" {
+			rs.AttentionDetail = info.AttentionDetail
+		}
 		if info.SnoozeRemaining > 0 {
 			rs.SnoozeRemaining = info.SnoozeRemaining.Round(time.Second).String()
 		}

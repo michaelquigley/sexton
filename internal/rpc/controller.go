@@ -38,6 +38,7 @@ type RepoInfo struct {
 	LastCommit       string
 	LastChange       time.Time
 	Error            string
+	AttentionDetail  string
 	SnoozeRemaining  time.Duration
 	HoldoutRemaining time.Duration
 }

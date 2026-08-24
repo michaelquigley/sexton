@@ -87,6 +87,48 @@ func TestRunStatusAmbiguousRepoReturnsError(t *testing.T) {
 	}
 }
 
+func TestRunStatusRendersAttentionAndRetainedDetailPrecedence(t *testing.T) {
+	hostileDetail := `"drafts/line\nbreak|` + "`tick`" + `@channel\xff.md" (pulls paused)`
+	restore := stubDialAgent(t, fakeSextonClient{
+		statusResp: &sextonv1.StatusResponse{Repos: []*sextonv1.RepoStatus{
+			{
+				Name:            "attention-repo",
+				State:           "attention",
+				Branch:          "main",
+				AttentionDetail: hostileDetail,
+			},
+			{
+				Name:            "paused-repo",
+				State:           "snoozed",
+				Branch:          "main",
+				Error:           "push failed",
+				AttentionDetail: "standing attention",
+				SnoozeRemaining: "30m0s",
+			},
+		}},
+	}, nil)
+	defer restore()
+
+	output := captureStdout(t, func() {
+		if err := runStatus(nil, nil); err != nil {
+			t.Fatalf("runStatus() error = %v", err)
+		}
+	})
+
+	if !strings.Contains(output, "detail") || strings.Contains(output, "error") {
+		t.Fatalf("status heading = %q", output)
+	}
+	if !strings.Contains(output, hostileDetail) {
+		t.Fatalf("attention detail missing: %q", output)
+	}
+	if strings.Contains(output, "line\nbreak") || !strings.Contains(output, `\xff`) {
+		t.Fatalf("hostile detail was not rendered visibly: %q", output)
+	}
+	if !strings.Contains(output, "push failed") || strings.Contains(output, "standing attention") {
+		t.Fatalf("retained detail precedence wrong: %q", output)
+	}
+}
+
 func TestRunSyncFailureReturnsError(t *testing.T) {
 	restore := stubDialAgent(t, fakeSextonClient{
 		syncErr: status.Error(codes.FailedPrecondition, "agent is snoozed"),
