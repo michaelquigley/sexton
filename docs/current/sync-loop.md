@@ -47,6 +47,8 @@ Two failure shapes are not errors:
 - **conflict** — `git.ErrConflict` aborts the rebase first, then errors. The working tree is never silently discarded; the operator resolves it.
 - **no remote** — `git.ErrNoRemote` from either pull or push completes the sync normally with an empty SHA. A repo with no remote is a valid commit-only configuration, not a broken one.
 
+Two compounds *are* errors, by accepted decision rather than oversight, revisit-if-noisy. A non-fast-forward push rejection while tracked unselected changes have paused the pull shows as `error` until the operator's commit unblocks the pull — the divergence is real and the operator must resolve it. And a refused reword swap — the operator committed during the message-generation window — also surfaces as `error` and recovers on the next poll, though the race is benign and the placeholder message stands either way; classifying it quietly was judged not worth the machinery.
+
 ## attention
 
 Attention is deduplicated by its rendered detail just like errors are deduplicated by error detail, but `setAttention` never changes the displayed state mid-cycle. The agent stays `syncing` until it reaches a terminal boundary; this is what lets a snooze arriving in response to the alert stop the cycle before it touches the remote. At rest, error outranks attention, while holdout and snooze can mask either without clearing them.
