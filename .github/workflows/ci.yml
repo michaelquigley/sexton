@@ -17,6 +17,8 @@ jobs:
         with:
           go-version: ${{ matrix.go-version }}
 
+      - run: go vet ./...
+
       - run: go test -v -race -coverprofile=coverage.out ./...
 
       - run: go build -o sexton ./cmd/sexton
